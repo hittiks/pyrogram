@@ -25,9 +25,9 @@ from pyrogram.parser.markdown import Markdown
 # entities: message entities coming from the server
 
 
-def test_markdown_unparse_bold():
-    expected = "**bold**"
-    text = "bold"
+def test_markdown_unparse_bold() -> None:
+    expected: str = "**bold**"
+    text: str = "bold"
     entities = pyrogram.types.List(
         [
             pyrogram.types.MessageEntity(
@@ -39,9 +39,9 @@ def test_markdown_unparse_bold():
     assert Markdown.unparse(text=text, entities=entities) == expected
 
 
-def test_markdown_unparse_italic():
-    expected = "__italic__"
-    text = "italic"
+def test_markdown_unparse_italic() -> None:
+    expected: str = "__italic__"
+    text: str = "italic"
     entities = pyrogram.types.List(
         [
             pyrogram.types.MessageEntity(
@@ -53,9 +53,9 @@ def test_markdown_unparse_italic():
     assert Markdown.unparse(text=text, entities=entities) == expected
 
 
-def test_markdown_unparse_strike():
-    expected = "~~strike~~"
-    text = "strike"
+def test_markdown_unparse_strike() -> None:
+    expected: str = "~~strike~~"
+    text: str = "strike"
     entities = pyrogram.types.List(
         [
             pyrogram.types.MessageEntity(
@@ -67,9 +67,9 @@ def test_markdown_unparse_strike():
     assert Markdown.unparse(text=text, entities=entities) == expected
 
 
-def test_markdown_unparse_spoiler():
-    expected = "||spoiler||"
-    text = "spoiler"
+def test_markdown_unparse_spoiler() -> None:
+    expected: str = "||spoiler||"
+    text: str = "spoiler"
     entities = pyrogram.types.List(
         [
             pyrogram.types.MessageEntity(
@@ -81,9 +81,9 @@ def test_markdown_unparse_spoiler():
     assert Markdown.unparse(text=text, entities=entities) == expected
 
 
-def test_markdown_unparse_url():
-    expected = "[URL](https://pyrogram.org/)"
-    text = "URL"
+def test_markdown_unparse_url() -> None:
+    expected: str = "[URL](https://pyrogram.org/)"
+    text: str = "URL"
     entities = pyrogram.types.List(
         [
             pyrogram.types.MessageEntity(
@@ -98,9 +98,9 @@ def test_markdown_unparse_url():
     assert Markdown.unparse(text=text, entities=entities) == expected
 
 
-def test_markdown_unparse_emoji():
-    expected = "![🥲](tg://emoji?id=5195264424893488796) im crying"
-    text = "🥲 im crying"
+def test_markdown_unparse_emoji() -> None:
+    expected: str = "![🥲](tg://emoji?id=5195264424893488796) im crying"
+    text: str = "🥲 im crying"
     entities = pyrogram.types.List(
         [
             pyrogram.types.MessageEntity(
@@ -115,9 +115,9 @@ def test_markdown_unparse_emoji():
     assert Markdown.unparse(text=text, entities=entities) == expected
 
 
-def test_markdown_unparse_code():
-    expected = "`code`"
-    text = "code"
+def test_markdown_unparse_code() -> None:
+    expected: str = "`code`"
+    text: str = "code"
     entities = pyrogram.types.List(
         [
             pyrogram.types.MessageEntity(
@@ -129,13 +129,13 @@ def test_markdown_unparse_code():
     assert Markdown.unparse(text=text, entities=entities) == expected
 
 
-def test_markdown_unparse_pre():
-    expected = """```python
+def test_markdown_unparse_pre() -> None:
+    expected: str = """```python
 for i in range(10):
     print(i)
 ```"""
 
-    text = """for i in range(10):
+    text: str = """for i in range(10):
     print(i)"""
 
     entities = pyrogram.types.List(
@@ -149,13 +149,13 @@ for i in range(10):
     assert Markdown.unparse(text=text, entities=entities) == expected
 
 
-def test_markdown_unparse_blockquote():
-    expected = """> Hello
+def test_markdown_unparse_blockquote() -> None:
+    expected: str = """> Hello
 > from
 
 > pyrogram!"""
 
-    text = """Hello\nfrom\n\npyrogram!"""
+    text: str = """Hello\nfrom\n\npyrogram!"""
 
     entities = pyrogram.types.List(
         [
@@ -171,11 +171,11 @@ def test_markdown_unparse_blockquote():
     assert Markdown.unparse(text=text, entities=entities) == expected
 
 
-def test_markdown_unparse_mixed():
-    expected = (
+def test_markdown_unparse_mixed() -> None:
+    expected: str = (
         "**aaaaaaa__aaabbb**__~~dddddddd||ddeee~~||||eeeeeeefff||ffff`fffggggggg`ggghhhhhhhhhh"
     )
-    text = "aaaaaaaaaabbbddddddddddeeeeeeeeeeffffffffffgggggggggghhhhhhhhhh"
+    text: str = "aaaaaaaaaabbbddddddddddeeeeeeeeeeffffffffffgggggggggghhhhhhhhhh"
     entities = pyrogram.types.List(
         [
             pyrogram.types.MessageEntity(
@@ -202,17 +202,17 @@ def test_markdown_unparse_mixed():
     assert Markdown.unparse(text=text, entities=entities) == expected
 
 
-def test_markdown_unparse_no_entities():
-    expected = "text"
-    text = "text"
-    entities = []
+def test_markdown_unparse_no_entities() -> None:
+    expected: str = "text"
+    text: str = "text"
+    entities: list[pyrogram.types.MessageEntity] = []
 
     assert Markdown.unparse(text=text, entities=entities) == expected
 
 
-def test_markdown_unparse_html():
-    expected = "__This works, it's ok__ <b>This shouldn't</b>"
-    text = "This works, it's ok <b>This shouldn't</b>"
+def test_markdown_unparse_html() -> None:
+    expected: str = "__This works, it's ok__ <b>This shouldn't</b>"
+    text: str = "This works, it's ok <b>This shouldn't</b>"
     entities = pyrogram.types.List(
         [
             pyrogram.types.MessageEntity(
