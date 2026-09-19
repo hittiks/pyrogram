@@ -376,12 +376,12 @@ SPECS: Final[tuple[EntitySpec, ...]] = (
 
 _SPECS_BY_TYPE: Final[dict[MessageEntityType, EntitySpec]] = {spec.type: spec for spec in SPECS}
 
-# Longest first, so that ``` is read as a fence and not as two code delimiters.
+# Longest first, so that ``` is read as a fence and not as two code delimiters. Alphabetical
+#  within one length only to keep the order stable between runs.
 MARKDOWN_DELIMITERS: Final[tuple[str, ...]] = tuple(
     sorted(
         {spec.markdown_delimiter for spec in SPECS if spec.markdown_delimiter},
-        key=len,
-        reverse=True,
+        key=lambda delimiter: (-len(delimiter), delimiter),
     )
 )
 
