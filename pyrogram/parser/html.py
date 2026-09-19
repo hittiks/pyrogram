@@ -16,137 +16,216 @@
 #  You should have received a copy of the GNU Lesser General Public License
 #  along with Pyrogram.  If not, see <http://www.gnu.org/licenses/>.
 
+"""The Bot API HTML style, read and written.
+
+Reading runs in three passes: `Parser` turns the markup into a flat list of tokens, `_pair`
+decides which start tag each end tag closes, and `_build` walks the tokens once to produce
+the message and its entities together. Every offset is therefore known when the entity is
+constructed, and a tag that pairs with nothing survives in the message text as written.
+
+The tags themselves live in `entities.py`, once. https://core.telegram.org/bots/api#html-style
+"""
+
 from __future__ import annotations as _annotations
 
 import html
-import logging
-import re
+from dataclasses import dataclass, replace
 from html.parser import HTMLParser
+from typing import TypeAlias
 
 import pyrogram
 from pyrogram import raw, types
-from pyrogram.enums import MessageEntityType
 from pyrogram.errors import PeerIdInvalid
 
 from . import utils
+from .entities import EntitySpec, Insertion, spec_for_tag, spec_for_type
 
-log = logging.getLogger(__name__)
+
+@dataclass(frozen=True, slots=True)
+class TextToken:
+    """Text between tags, with its character references already resolved."""
+
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
+class StartToken:
+    """A start tag. `spec` is `None` for a tag that opens no entity."""
+
+    tag: str
+    attributes: dict[str, str]
+    source: str
+    spec: EntitySpec | None
+
+
+@dataclass(frozen=True, slots=True)
+class EndToken:
+    tag: str
+    source: str
+
+
+TokenType: TypeAlias = TextToken | StartToken | EndToken
+
+
+@dataclass(frozen=True, slots=True)
+class ParsedMarkup:
+    message: str
+    entities: list[raw.base.MessageEntity]
 
 
 class Parser(HTMLParser):
-    # TODO: <span class="tg-spoiler"> <pre><code class="language-...">
-    MENTION_RE = re.compile(r"tg://user\?id=(\d+)")
+    """Markup in, tokens out. Nothing here knows about offsets or entities."""
 
-    def __init__(self, client: pyrogram.Client):
-        super().__init__()
+    def __init__(self) -> None:
+        # `convert_charrefs` resolves `&amp;` before `handle_data` sees it. Unescaping a
+        #  second time there turned `&amp;lt;` into `<` instead of `&lt;`.
+        super().__init__(convert_charrefs=True)
 
-        self.client = client
+        self.tokens: list[TokenType] = []
 
-        self.text = ""
-        self.entities = []
-        self.tag_entities = {}
+        # One entry per open `code` tag, saying whether it was folded into a `pre`.
+        self.code_folded: list[bool] = []
 
-    def handle_starttag(self, tag, attrs):
-        attrs = dict(attrs)
-        extra = {}
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]], /) -> None:
+        # A valueless attribute such as the `expandable` of a blockquote parses as `None`.
+        attributes = {name: value or "" for name, value in attrs}
 
-        if tag in ["b", "strong"]:
-            entity = raw.types.MessageEntityBold
-        elif tag in ["i", "em"]:
-            entity = raw.types.MessageEntityItalic
-        elif tag in ["u", "ins"]:
-            entity = raw.types.MessageEntityUnderline
-        elif tag in ["s", "del", "strike"]:
-            entity = raw.types.MessageEntityStrike
-        elif tag == "blockquote":
-            entity = raw.types.MessageEntityBlockquote
-            extra["collapsed"] = "expandable" in attrs
-        elif tag == "code":
-            entity = raw.types.MessageEntityCode
-        elif tag == "pre":
-            entity = raw.types.MessageEntityPre
-            extra["language"] = attrs.get("language", "")
-        elif tag in ["spoiler", "tg-spoiler"]:
-            entity = raw.types.MessageEntitySpoiler
-        elif tag == "a":
-            url = attrs.get("href", "")
+        if tag == "code":
+            folded = self._fold_into_pre(attributes)
+            self.code_folded.append(folded)
 
-            mention = Parser.MENTION_RE.match(url)
+            if folded:
+                return
 
-            if mention:
-                entity = raw.types.InputMessageEntityMentionName
-                extra["user_id"] = int(mention.group(1))
-            elif url.startswith("mailto:"):
-                entity = raw.types.MessageEntityEmail
-            else:
-                entity = raw.types.MessageEntityTextUrl
-                extra["url"] = url
-        elif tag in ["emoji", "tg-emoji"]:
-            entity = raw.types.MessageEntityCustomEmoji
-            custom_emoji_id = attrs.get("emoji-id") if tag == "tg-emoji" else attrs.get("id")
-            extra["document_id"] = int(custom_emoji_id)
-        elif tag == "tg-time":
-            entity = raw.types.MessageEntityFormattedDate
-            extra["date"] = int(attrs.get("unix"))
-            date_time_format = attrs.get("format", "")
+        self.tokens.append(
+            StartToken(
+                tag=tag,
+                attributes=attributes,
+                source=self.get_starttag_text() or "",
+                spec=spec_for_tag(tag, attributes=attributes),
+            )
+        )
 
-            extra["relative"] = False
-            extra["short_time"] = False
-            extra["long_time"] = False
-            extra["short_date"] = False
-            extra["long_date"] = False
-            extra["day_of_week"] = False
+    def _fold_into_pre(self, attributes: dict[str, str]) -> bool:
+        """Whether this `code` tag is the language of the `pre` it opens, and was folded in.
 
-            if date_time_format:
-                if not re.fullmatch(r"r|w?[dD]?[tT]?", date_time_format):
-                    raise ValueError(f"Invalid date-time format string: '{date_time_format}'")
+        `<pre><code class="language-python">` is one `pre` entity carrying a language, and is
+        the only way the Bot API spells one. The two tags have to be adjacent, as they are in
+        everything Telegram writes. https://core.telegram.org/bots/api#html-style
+        """
+        previous = self.tokens[-1] if self.tokens else None
 
-                if date_time_format == "r":
-                    extra["relative"] = True
-                else:
-                    if "w" in date_time_format:
-                        extra["day_of_week"] = True
+        if not isinstance(previous, StartToken) or previous.tag != "pre":
+            return False
 
-                    if "d" in date_time_format:
-                        extra["short_date"] = True
-                    elif "D" in date_time_format:
-                        extra["long_date"] = True
+        language = attributes.get("class", "").removeprefix("language-")
+        self.tokens[-1] = replace(
+            previous,
+            attributes={**previous.attributes, "language": language},
+        )
 
-                    if "t" in date_time_format:
-                        extra["short_time"] = True
-                    elif "T" in date_time_format:
-                        extra["long_time"] = True
-        else:
+        return True
+
+    def handle_endtag(self, tag: str, /) -> None:
+        if tag == "code" and self.code_folded and self.code_folded.pop():
             return
 
-        if tag not in self.tag_entities:
-            self.tag_entities[tag] = []
+        self.tokens.append(
+            EndToken(
+                tag=tag,
+                source=f"</{tag}>",
+            )
+        )
 
-        self.tag_entities[tag].append(entity(offset=len(self.text), length=0, **extra))
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]], /) -> None:
+        del tag, attrs
 
-    def handle_data(self, data):
-        data = html.unescape(data)
+        # No entity tag is self-closing, so `<br/>` is text and stays text.
+        self.tokens.append(TextToken(text=self.get_starttag_text() or ""))
 
-        for entities in self.tag_entities.values():
-            for entity in entities:
-                entity.length += len(data)
+    def handle_data(self, data: str) -> None:
+        self.tokens.append(TextToken(text=data))
 
-        self.text += data
+    def handle_comment(self, data: str) -> None:
+        self.tokens.append(TextToken(text=f"<!--{data}-->"))
 
-    def handle_endtag(self, tag):
-        try:
-            self.entities.append(self.tag_entities[tag].pop())
-        except (KeyError, IndexError):
-            line, offset = self.getpos()
-            offset += 1
+    def handle_decl(self, decl: str) -> None:
+        self.tokens.append(TextToken(text=f"<!{decl}>"))
 
-            log.debug("Unmatched closing tag </%s> at line %s:%s", tag, line, offset)
-        else:
-            if not self.tag_entities[tag]:
-                self.tag_entities.pop(tag)
+    def handle_pi(self, data: str) -> None:
+        self.tokens.append(TextToken(text=f"<?{data}>"))
 
-    def error(self, message):
-        pass
+    def unknown_decl(self, data: str) -> None:
+        self.tokens.append(TextToken(text=f"<![{data}]>"))
+
+
+def _pair(tokens: list[TokenType]) -> dict[int, int]:
+    """Which end token closes which start token, by index into `tokens`.
+
+    One stack per tag name, so `<b><i>x</b></i>` still yields both entities rather than
+    discarding the pair that crosses.
+    """
+    open_by_tag: dict[str, list[int]] = {}
+    pairs: dict[int, int] = {}
+
+    for index, token in enumerate(tokens):
+        if isinstance(token, StartToken) and token.spec is not None:
+            open_by_tag.setdefault(token.tag, []).append(index)
+
+        elif isinstance(token, EndToken):
+            opened = open_by_tag.get(token.tag)
+
+            if opened:
+                pairs[opened.pop()] = index
+
+    return pairs
+
+
+def _build(tokens: list[TokenType]) -> ParsedMarkup:
+    """The message text and its entities, in one left-to-right sweep."""
+    pairs = _pair(tokens)
+    closing: dict[int, raw.base.MessageEntity] = {}
+
+    parts: list[str] = []
+    offset: int = 0
+    entities: list[raw.base.MessageEntity] = []
+
+    for index, token in enumerate(tokens):
+        if isinstance(token, EndToken):
+            entity = closing.pop(index, None)
+
+            if entity is None:
+                parts.append(token.source)
+                offset += len(token.source)
+                continue
+
+            entity.length = offset - entity.offset
+            continue
+
+        if isinstance(token, StartToken):
+            end_index = pairs.get(index)
+
+            if end_index is None or token.spec is None:
+                parts.append(token.source)
+                offset += len(token.source)
+                continue
+
+            entity = token.spec.raw_type(
+                offset=offset,
+                length=0,
+                **token.spec.raw_arguments(token.attributes),
+            )
+            closing[end_index] = entity
+            entities.append(entity)
+            continue
+
+        parts.append(token.text)
+        offset += len(token.text)
+
+    return ParsedMarkup(
+        message="".join(parts),
+        entities=entities,
+    )
 
 
 class HTML:
@@ -154,146 +233,88 @@ class HTML:
         self.client = client
 
     async def parse(self, text: str) -> dict:
-        # Strip whitespaces from the beginning and the end, but preserve closing tags
-        text = re.sub(r"^\s*(<[\w<>=\s\"]*>)\s*", r"\1", text)
-        text = re.sub(r"\s*(</[\w</>]*>)\s*$", r"\1", text)
-
-        parser = Parser(self.client)
+        parser = Parser()
         parser.feed(utils.add_surrogates(text))
         parser.close()
 
-        if parser.tag_entities:
-            unclosed_tags = []
-
-            for tag, entities in parser.tag_entities.items():
-                unclosed_tags.append(f"<{tag}> (x{len(entities)})")
-
-            log.info("Unclosed tags: %s", ", ".join(unclosed_tags))
-
+        parsed = _build(parser.tokens)
         entities = []
 
-        for entity in parser.entities:
-            if isinstance(entity, raw.types.InputMessageEntityMentionName):
+        for entity in parsed.entities:
+            if not entity.length:
+                continue
+
+            if isinstance(entity, raw.types.InputMessageEntityMentionName) and self.client:
                 try:
-                    if self.client is not None:
-                        entity.user_id = await self.client.resolve_peer(entity.user_id)
+                    entity.user_id = await self.client.resolve_peer(entity.user_id)
+
                 except PeerIdInvalid:
                     continue
 
             entities.append(entity)
 
-        # Remove zero-length entities
-        entities = list(filter(lambda x: x.length > 0, entities))
-
         return {
-            "message": utils.remove_surrogates(parser.text),
-            "entities": sorted(entities, key=lambda e: e.offset) or None,
+            "message": utils.remove_surrogates(parsed.message),
+            "entities": sorted(entities, key=lambda entity: entity.offset) or None,
         }
 
     @staticmethod
     def unparse(text: str, entities: list[types.MessageEntity]) -> str:
-        def parse_one(entity: types.MessageEntity):
+        ordered = sorted(entities, key=lambda entity: (entity.offset, -entity.length))
+        insertions: list[Insertion] = []
+
+        def nest(entity_index: int) -> int:
+            """Write one entity and every entity inside it, innermost tag last.
+
+            Returns how many entities of `ordered` that consumed, so the caller advances
+            past the whole nest without sorting the insertions afterwards.
             """
-            Parses a single entity and returns (start_tag, start), (end_tag, end)
-            """
-            entity_type = entity.type
-            start = entity.offset
-            end = start + entity.length
+            entity = ordered[entity_index]
+            spec = spec_for_type(entity.type)
 
-            if entity_type in (
-                MessageEntityType.BOLD,
-                MessageEntityType.ITALIC,
-                MessageEntityType.UNDERLINE,
-                MessageEntityType.STRIKETHROUGH,
-            ):
-                name = entity_type.name[0].lower()
-                start_tag = f"<{name}>"
-                end_tag = f"</{name}>"
-            elif entity_type == MessageEntityType.PRE:
-                name = entity_type.name.lower()
-                language = getattr(entity, "language", "") or ""
-                start_tag = f'<{name} language="{language}">' if language else f"<{name}>"
-                end_tag = f"</{name}>"
-            elif entity_type == MessageEntityType.BLOCKQUOTE:
-                name = entity_type.name.lower()
-                expandable = getattr(entity, "expandable", False)
-                start_tag = f"<{name}{' expandable' if expandable else ''}>"
-                end_tag = f"</{name}>"
-            elif entity_type in (
-                MessageEntityType.CODE,
-                MessageEntityType.SPOILER,
-            ):
-                name = entity_type.name.lower()
-                start_tag = f"<{name}>"
-                end_tag = f"</{name}>"
-            elif entity_type == MessageEntityType.TEXT_LINK:
-                url = entity.url
-                start_tag = f'<a href="{url}">'
-                end_tag = "</a>"
-            elif entity_type == MessageEntityType.TEXT_MENTION:
-                user = entity.user
-                start_tag = f'<a href="tg://user?id={user.id}">'
-                end_tag = "</a>"
-            elif entity_type == MessageEntityType.CUSTOM_EMOJI:
-                custom_emoji_id = entity.custom_emoji_id
-                start_tag = f'<tg-emoji emoji-id="{custom_emoji_id}">'
-                end_tag = "</tg-emoji>"
-            elif entity_type == MessageEntityType.DATE_TIME:
-                unix_time = entity.unix_time
-                date_time_format = entity.date_time_format
-
-                if date_time_format:
-                    start_tag = f'<tg-time unix="{unix_time}" format="{date_time_format}">'
-                else:
-                    start_tag = f'<tg-time unix="{unix_time}">'
-
-                end_tag = "</tg-time>"
-            else:
-                return None
-
-            return (start_tag, start), (end_tag, end)
-
-        def recursive(entity_i: int) -> int:
-            """
-            Takes the index of the entity to start parsing from, returns the number of parsed entities inside it.
-            Uses entities_offsets as a stack, pushing (start_tag, start) first, then parsing nested entities,
-            and finally pushing (end_tag, end) to the stack.
-            No need to sort at the end.
-            """
-            this = parse_one(entities[entity_i])
-            if this is None:
+            if spec is None:
                 return 1
-            (start_tag, start), (end_tag, end) = this
-            entities_offsets.append((start_tag, start))
-            internal_i = entity_i + 1
-            # while the next entity is inside the current one, keep parsing
-            while internal_i < len(entities) and entities[internal_i].offset < end:
-                internal_i += recursive(internal_i)
-            entities_offsets.append((end_tag, end))
-            return internal_i - entity_i
+
+            end: int = entity.offset + entity.length
+
+            insertions.append(
+                Insertion(
+                    text=spec.html_open(entity),
+                    offset=entity.offset,
+                )
+            )
+
+            inner_index: int = entity_index + 1
+
+            while inner_index < len(ordered) and ordered[inner_index].offset < end:
+                inner_index += nest(inner_index)
+
+            insertions.append(
+                Insertion(
+                    text=spec.html_close(entity),
+                    offset=end,
+                )
+            )
+
+            return inner_index - entity_index
+
+        index: int = 0
+
+        while index < len(ordered):
+            index += nest(index)
 
         text = utils.add_surrogates(text)
 
-        entities_offsets = []
+        # `nest` appends in document order, so one forward sweep both escapes the text it
+        #  passes and writes the tags between the pieces.
+        parts: list[str] = []
+        written: int = 0
 
-        # probably useless because entities are already sorted by telegram
-        entities.sort(key=lambda e: (e.offset, -e.length))
+        for insertion in insertions:
+            parts.append(html.escape(text[written : insertion.offset]))
+            parts.append(insertion.text)
+            written = insertion.offset
 
-        # main loop for first-level entities
-        i = 0
-        while i < len(entities):
-            i += recursive(i)
+        parts.append(html.escape(text[written:]))
 
-        if entities_offsets:
-            last_offset = entities_offsets[-1][1]
-            # no need to sort, but still add entities starting from the end
-            for entity, offset in reversed(entities_offsets):
-                text = (
-                    text[:offset]
-                    + entity
-                    + html.escape(text[offset:last_offset])
-                    + text[last_offset:]
-                )
-                last_offset = offset
-
-        return utils.remove_surrogates(text)
+        return utils.remove_surrogates("".join(parts))

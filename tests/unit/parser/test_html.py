@@ -25,9 +25,9 @@ from pyrogram.parser.html import HTML
 # entities: message entities coming from the server
 
 
-def test_html_unparse_bold():
-    expected = "<b>bold</b>"
-    text = "bold"
+def test_html_unparse_bold() -> None:
+    expected: str = "<b>bold</b>"
+    text: str = "bold"
     entities = pyrogram.types.List(
         [
             pyrogram.types.MessageEntity(
@@ -39,9 +39,9 @@ def test_html_unparse_bold():
     assert HTML.unparse(text=text, entities=entities) == expected
 
 
-def test_html_unparse_italic():
-    expected = "<i>italic</i>"
-    text = "italic"
+def test_html_unparse_italic() -> None:
+    expected: str = "<i>italic</i>"
+    text: str = "italic"
     entities = pyrogram.types.List(
         [
             pyrogram.types.MessageEntity(
@@ -53,9 +53,9 @@ def test_html_unparse_italic():
     assert HTML.unparse(text=text, entities=entities) == expected
 
 
-def test_html_unparse_underline():
-    expected = "<u>underline</u>"
-    text = "underline"
+def test_html_unparse_underline() -> None:
+    expected: str = "<u>underline</u>"
+    text: str = "underline"
     entities = pyrogram.types.List(
         [
             pyrogram.types.MessageEntity(
@@ -67,9 +67,9 @@ def test_html_unparse_underline():
     assert HTML.unparse(text=text, entities=entities) == expected
 
 
-def test_html_unparse_strike():
-    expected = "<s>strike</s>"
-    text = "strike"
+def test_html_unparse_strike() -> None:
+    expected: str = "<s>strike</s>"
+    text: str = "strike"
     entities = pyrogram.types.List(
         [
             pyrogram.types.MessageEntity(
@@ -81,9 +81,9 @@ def test_html_unparse_strike():
     assert HTML.unparse(text=text, entities=entities) == expected
 
 
-def test_html_unparse_spoiler():
-    expected = "<spoiler>spoiler</spoiler>"
-    text = "spoiler"
+def test_html_unparse_spoiler() -> None:
+    expected: str = "<tg-spoiler>spoiler</tg-spoiler>"
+    text: str = "spoiler"
     entities = pyrogram.types.List(
         [
             pyrogram.types.MessageEntity(
@@ -95,9 +95,9 @@ def test_html_unparse_spoiler():
     assert HTML.unparse(text=text, entities=entities) == expected
 
 
-def test_html_unparse_url():
-    expected = '<a href="https://pyrogram.org/">URL</a>'
-    text = "URL"
+def test_html_unparse_url() -> None:
+    expected: str = '<a href="https://pyrogram.org/">URL</a>'
+    text: str = "URL"
     entities = pyrogram.types.List(
         [
             pyrogram.types.MessageEntity(
@@ -112,9 +112,9 @@ def test_html_unparse_url():
     assert HTML.unparse(text=text, entities=entities) == expected
 
 
-def test_html_unparse_code():
-    expected = "<code>code</code>"
-    text = "code"
+def test_html_unparse_code() -> None:
+    expected: str = "<code>code</code>"
+    text: str = "code"
     entities = pyrogram.types.List(
         [
             pyrogram.types.MessageEntity(
@@ -126,11 +126,11 @@ def test_html_unparse_code():
     assert HTML.unparse(text=text, entities=entities) == expected
 
 
-def test_html_unparse_pre():
-    expected = """<pre language="python">for i in range(10):
-    print(i)</pre>"""
+def test_html_unparse_pre() -> None:
+    expected: str = """<pre><code class="language-python">for i in range(10):
+    print(i)</code></pre>"""
 
-    text = """for i in range(10):
+    text: str = """for i in range(10):
     print(i)"""
 
     entities = pyrogram.types.List(
@@ -144,11 +144,11 @@ def test_html_unparse_pre():
     assert HTML.unparse(text=text, entities=entities) == expected
 
 
-def test_html_unparse_blockquote():
-    expected = """<blockquote>Quote text</blockquote>
+def test_html_unparse_blockquote() -> None:
+    expected: str = """<blockquote>Quote text</blockquote>
     from pyrogram"""
 
-    text = """Quote text
+    text: str = """Quote text
     from pyrogram"""
 
     entities = pyrogram.types.List(
@@ -162,12 +162,13 @@ def test_html_unparse_blockquote():
     assert HTML.unparse(text=text, entities=entities) == expected
 
 
-def test_html_unparse_mixed():
-    expected = (
-        "<b>aaaaaaa<i>aaa<u>bbbb</u></i></b><u><i>bbbbbbccc</i></u><u>ccccccc<s>ddd</s></u><s>ddddd<spoiler>dd"
-        "eee</spoiler></s><spoiler>eeeeeeefff</spoiler>ffff<code>fffggggggg</code>ggghhhhhhhhhh"
+def test_html_unparse_mixed() -> None:
+    expected: str = (
+        "<b>aaaaaaa<i>aaa<u>bbbb</u></i></b><u><i>bbbbbbccc</i></u><u>ccccccc<s>ddd</s></u><s>ddddd"
+        "<tg-spoiler>ddeee</tg-spoiler></s><tg-spoiler>eeeeeeefff</tg-spoiler>ffff"
+        "<code>fffggggggg</code>ggghhhhhhhhhh"
     )
-    text = "aaaaaaaaaabbbbbbbbbbccccccccccddddddddddeeeeeeeeeeffffffffffgggggggggghhhhhhhhhh"
+    text: str = "aaaaaaaaaabbbbbbbbbbccccccccccddddddddddeeeeeeeeeeffffffffffgggggggggghhhhhhhhhh"
     entities = pyrogram.types.List(
         [
             pyrogram.types.MessageEntity(
@@ -209,9 +210,9 @@ def test_html_unparse_mixed():
     assert HTML.unparse(text=text, entities=entities) == expected
 
 
-def test_html_unparse_escaped():
-    expected = "<b>&lt;b&gt;bold&lt;/b&gt;</b>"
-    text = "<b>bold</b>"
+def test_html_unparse_escaped() -> None:
+    expected: str = "<b>&lt;b&gt;bold&lt;/b&gt;</b>"
+    text: str = "<b>bold</b>"
     entities = pyrogram.types.List(
         [
             pyrogram.types.MessageEntity(
@@ -223,9 +224,9 @@ def test_html_unparse_escaped():
     assert HTML.unparse(text=text, entities=entities) == expected
 
 
-def test_html_unparse_escaped_nested():
-    expected = "<b>&lt;b&gt;bold <u>&lt;u&gt;underline&lt;/u&gt;</u> bold&lt;/b&gt;</b>"
-    text = "<b>bold <u>underline</u> bold</b>"
+def test_html_unparse_escaped_nested() -> None:
+    expected: str = "<b>&lt;b&gt;bold <u>&lt;u&gt;underline&lt;/u&gt;</u> bold&lt;/b&gt;</b>"
+    text: str = "<b>bold <u>underline</u> bold</b>"
     entities = pyrogram.types.List(
         [
             pyrogram.types.MessageEntity(
@@ -240,9 +241,9 @@ def test_html_unparse_escaped_nested():
     assert HTML.unparse(text=text, entities=entities) == expected
 
 
-def test_html_unparse_no_entities():
-    expected = "text"
-    text = "text"
-    entities = []
+def test_html_unparse_no_entities() -> None:
+    expected: str = "text"
+    text: str = "text"
+    entities: list[pyrogram.types.MessageEntity] = []
 
     assert HTML.unparse(text=text, entities=entities) == expected
