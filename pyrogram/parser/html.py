@@ -305,12 +305,15 @@ class HTML:
 
         text = utils.add_surrogates(text)
 
-        # `nest` appends in document order, so one forward sweep both escapes the text it
-        #  passes and writes the tags between the pieces.
+        # `nest` appends nested runs in document order, but an entity that CROSSES another
+        #  (starts inside it, ends outside) lands its closing tag out of order, and the sweep
+        #  below would then re-emit the text between the two ends. A stable sort keeps the
+        #  nested order at equal offsets and puts a crossing close where it belongs; the
+        #  crossed tags it writes are exactly what `_pair`'s per-tag stacks read back.
         parts: list[str] = []
         written: int = 0
 
-        for insertion in insertions:
+        for insertion in sorted(insertions, key=lambda item: item.offset):
             parts.append(html.escape(text[written : insertion.offset]))
             parts.append(insertion.text)
             written = insertion.offset
