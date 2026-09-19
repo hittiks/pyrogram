@@ -224,3 +224,142 @@ def test_markdown_unparse_html() -> None:
     )
 
     assert Markdown.unparse(text=text, entities=entities) == expected
+
+
+# The parse side. `strict` is what `ParseMode.MARKDOWN` passes; the default is
+#  `ParseMode.DEFAULT`, which also reads the HTML tags.
+
+
+async def test_markdown_parse_expandable_blockquote() -> None:
+    expected = pyrogram.raw.types.MessageEntityBlockquote(
+        offset=0,
+        length=1,
+        collapsed=True,
+    )
+
+    parsed = await Markdown(None).parse("**> q||")
+
+    assert parsed["message"] == "q"
+    assert [repr(entity) for entity in parsed["entities"]] == [repr(expected)]
+
+
+async def test_markdown_parse_blockquote() -> None:
+    expected = pyrogram.raw.types.MessageEntityBlockquote(
+        offset=0,
+        length=1,
+        collapsed=False,
+    )
+
+    parsed = await Markdown(None).parse("> q")
+
+    assert parsed["message"] == "q"
+    assert [repr(entity) for entity in parsed["entities"]] == [repr(expected)]
+
+
+async def test_markdown_parse_keeps_the_line_after_a_blockquote() -> None:
+    first = pyrogram.raw.types.MessageEntityBold(
+        offset=0,
+        length=1,
+    )
+    quote = pyrogram.raw.types.MessageEntityBlockquote(
+        offset=2,
+        length=5,
+        collapsed=False,
+    )
+    second = pyrogram.raw.types.MessageEntityBold(
+        offset=8,
+        length=1,
+    )
+
+    parsed = await Markdown(None).parse("**a**\n> quote\n**b**")
+
+    assert parsed["message"] == "a\nquote\nb"
+    assert [repr(entity) for entity in parsed["entities"]] == [
+        repr(first),
+        repr(quote),
+        repr(second),
+    ]
+
+
+async def test_markdown_parse_removes_a_backslash_escape() -> None:
+    parsed = await Markdown(None).parse(r"\*x\*")
+
+    assert parsed["message"] == "*x*"
+    assert parsed["entities"] is None
+
+
+async def test_markdown_parse_removes_a_backslash_escape_in_strict_mode() -> None:
+    parsed = await Markdown(None).parse(r"\*x\*", strict=True)
+
+    assert parsed["message"] == "*x*"
+    assert parsed["entities"] is None
+
+
+async def test_markdown_parse_fenced_block_swallows_no_newline() -> None:
+    expected = pyrogram.raw.types.MessageEntityPre(
+        offset=0,
+        length=5,
+        language="python",
+    )
+
+    parsed = await Markdown(None).parse("```python\nhello\n```")
+
+    assert parsed["message"] == "hello"
+    assert [repr(entity) for entity in parsed["entities"]] == [repr(expected)]
+
+
+async def test_markdown_parse_fence_without_a_language() -> None:
+    expected = pyrogram.raw.types.MessageEntityPre(
+        offset=0,
+        length=5,
+        language="",
+    )
+
+    parsed = await Markdown(None).parse("```\nplain\n```")
+
+    assert parsed["message"] == "plain"
+    assert [repr(entity) for entity in parsed["entities"]] == [repr(expected)]
+
+
+async def test_markdown_parse_keeps_an_unpaired_delimiter_as_text() -> None:
+    parsed = await Markdown(None).parse("**unpaired")
+
+    assert parsed["message"] == "**unpaired"
+    assert parsed["entities"] is None
+
+
+async def test_markdown_parse_does_not_read_a_delimiter_inside_code() -> None:
+    expected = pyrogram.raw.types.MessageEntityCode(
+        offset=0,
+        length=5,
+    )
+
+    parsed = await Markdown(None).parse("`**x**`")
+
+    assert parsed["message"] == "**x**"
+    assert [repr(entity) for entity in parsed["entities"]] == [repr(expected)]
+
+
+async def test_markdown_parse_reads_html_when_not_strict() -> None:
+    expected = pyrogram.raw.types.MessageEntityBold(
+        offset=0,
+        length=1,
+    )
+
+    parsed = await Markdown(None).parse("<b>x</b>")
+
+    assert parsed["message"] == "x"
+    assert [repr(entity) for entity in parsed["entities"]] == [repr(expected)]
+
+
+async def test_markdown_parse_link() -> None:
+    expected = pyrogram.raw.types.MessageEntityTextUrl(
+        offset=0,
+        length=3,
+        url="https://pyrogram.org/",
+    )
+
+    parsed = await Markdown(None).parse("[URL](https://pyrogram.org/)")
+
+    assert parsed["message"] == "URL"
+    assert [repr(entity) for entity in parsed["entities"]] == [repr(expected)]

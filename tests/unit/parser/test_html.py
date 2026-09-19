@@ -249,3 +249,141 @@ def test_html_unparse_no_entities() -> None:
     entities: list[pyrogram.types.MessageEntity] = []
 
     assert HTML.unparse(text=text, entities=entities) == expected
+
+
+# The parse side. `HTML.parse` needs a client only to resolve a `tg://user` mention,
+#  so `None` is enough for everything below.
+
+
+async def test_html_parse_spoiler() -> None:
+    expected = pyrogram.raw.types.MessageEntitySpoiler(
+        offset=0,
+        length=1,
+    )
+
+    parsed = await HTML(None).parse('<span class="tg-spoiler">s</span>')
+
+    assert parsed["message"] == "s"
+    assert [repr(entity) for entity in parsed["entities"]] == [repr(expected)]
+
+
+async def test_html_parse_tg_spoiler_tag() -> None:
+    expected = pyrogram.raw.types.MessageEntitySpoiler(
+        offset=0,
+        length=1,
+    )
+
+    parsed = await HTML(None).parse("<tg-spoiler>s</tg-spoiler>")
+
+    assert parsed["message"] == "s"
+    assert [repr(entity) for entity in parsed["entities"]] == [repr(expected)]
+
+
+async def test_html_parse_span_without_the_spoiler_class_is_not_an_entity() -> None:
+    parsed = await HTML(None).parse('<span class="other">s</span>')
+
+    assert parsed["message"] == '<span class="other">s</span>'
+    assert parsed["entities"] is None
+
+
+async def test_html_parse_pre_with_language() -> None:
+    expected = pyrogram.raw.types.MessageEntityPre(
+        offset=0,
+        length=3,
+        language="python",
+    )
+
+    parsed = await HTML(None).parse('<pre><code class="language-python">x=1</code></pre>')
+
+    assert parsed["message"] == "x=1"
+    assert [repr(entity) for entity in parsed["entities"]] == [repr(expected)]
+
+
+async def test_html_parse_pre_without_language() -> None:
+    expected = pyrogram.raw.types.MessageEntityPre(
+        offset=0,
+        length=3,
+        language="",
+    )
+
+    parsed = await HTML(None).parse("<pre>x=1</pre>")
+
+    assert parsed["message"] == "x=1"
+    assert [repr(entity) for entity in parsed["entities"]] == [repr(expected)]
+
+
+async def test_html_parse_code_outside_a_pre_stays_code() -> None:
+    expected = pyrogram.raw.types.MessageEntityCode(
+        offset=0,
+        length=3,
+    )
+
+    parsed = await HTML(None).parse("<code>x=1</code>")
+
+    assert parsed["message"] == "x=1"
+    assert [repr(entity) for entity in parsed["entities"]] == [repr(expected)]
+
+
+async def test_html_parse_expandable_blockquote() -> None:
+    expected = pyrogram.raw.types.MessageEntityBlockquote(
+        offset=0,
+        length=1,
+        collapsed=True,
+    )
+
+    parsed = await HTML(None).parse("<blockquote expandable>q</blockquote>")
+
+    assert parsed["message"] == "q"
+    assert [repr(entity) for entity in parsed["entities"]] == [repr(expected)]
+
+
+async def test_html_parse_keeps_an_unknown_tag_as_text() -> None:
+    parsed = await HTML(None).parse("<marquee>x</marquee>")
+
+    assert parsed["message"] == "<marquee>x</marquee>"
+    assert parsed["entities"] is None
+
+
+async def test_html_parse_keeps_an_unclosed_tag_as_text() -> None:
+    parsed = await HTML(None).parse("<b>unclosed")
+
+    assert parsed["message"] == "<b>unclosed"
+    assert parsed["entities"] is None
+
+
+async def test_html_parse_keeps_an_unopened_end_tag_as_text() -> None:
+    parsed = await HTML(None).parse("unopened</b>")
+
+    assert parsed["message"] == "unopened</b>"
+    assert parsed["entities"] is None
+
+
+async def test_html_parse_resolves_a_character_reference_once() -> None:
+    expected = pyrogram.raw.types.MessageEntityBold(
+        offset=0,
+        length=4,
+    )
+
+    parsed = await HTML(None).parse("<b>&amp;lt;</b>")
+
+    assert parsed["message"] == "&lt;"
+    assert [repr(entity) for entity in parsed["entities"]] == [repr(expected)]
+
+
+async def test_html_parse_keeps_the_whitespace_inside_a_tag() -> None:
+    expected = pyrogram.raw.types.MessageEntityBold(
+        offset=0,
+        length=3,
+    )
+
+    parsed = await HTML(None).parse("<b>\n x</b>")
+
+    assert parsed["message"] == "\n x"
+    assert [repr(entity) for entity in parsed["entities"]] == [repr(expected)]
+
+
+async def test_html_parse_drops_an_empty_entity() -> None:
+    parsed = await HTML(None).parse("<b></b>x")
+
+    assert parsed["message"] == "x"
+    assert parsed["entities"] is None
