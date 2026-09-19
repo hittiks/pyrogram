@@ -387,3 +387,79 @@ async def test_html_parse_drops_an_empty_entity() -> None:
 
     assert parsed["message"] == "x"
     assert parsed["entities"] is None
+
+
+def test_html_unparse_crossed_entities() -> None:
+    # Crossing, not nesting: the italic starts inside the bold and ends outside it.
+    entities = [
+        pyrogram.types.MessageEntity(
+            type=pyrogram.enums.MessageEntityType.BOLD,
+            offset=0,
+            length=5,
+        ),
+        pyrogram.types.MessageEntity(
+            type=pyrogram.enums.MessageEntityType.ITALIC,
+            offset=3,
+            length=7,
+        ),
+    ]
+
+    assert (
+        HTML.unparse(
+            text="abcdefghij",
+            entities=entities,
+        )
+        == "<b>abc<i>de</b>fghij</i>"
+    )
+
+
+async def test_html_crossed_entities_round_trip() -> None:
+    entities = [
+        pyrogram.types.MessageEntity(
+            type=pyrogram.enums.MessageEntityType.BOLD,
+            offset=0,
+            length=5,
+        ),
+        pyrogram.types.MessageEntity(
+            type=pyrogram.enums.MessageEntityType.ITALIC,
+            offset=3,
+            length=7,
+        ),
+    ]
+
+    parsed = await HTML(None).parse(
+        HTML.unparse(
+            text="abcdefghij",
+            entities=entities,
+        )
+    )
+
+    assert parsed["message"] == "abcdefghij"
+    assert [repr(entity) for entity in parsed["entities"]] == [
+        repr(
+            pyrogram.raw.types.MessageEntityBold(
+                offset=0,
+                length=5,
+            )
+        ),
+        repr(
+            pyrogram.raw.types.MessageEntityItalic(
+                offset=3,
+                length=7,
+            )
+        ),
+    ]
+
+
+async def test_html_parse_keeps_a_malformed_emoji_id_as_text() -> None:
+    parsed = await HTML(None).parse('<tg-emoji emoji-id="abc">x</tg-emoji>')
+
+    assert parsed["message"] == '<tg-emoji emoji-id="abc">x</tg-emoji>'
+    assert parsed["entities"] is None
+
+
+async def test_html_parse_keeps_a_malformed_date_time_format_as_text() -> None:
+    parsed = await HTML(None).parse('<tg-time unix="1" format="xyz">x</tg-time>')
+
+    assert parsed["message"] == '<tg-time unix="1" format="xyz">x</tg-time>'
+    assert parsed["entities"] is None

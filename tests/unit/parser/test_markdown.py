@@ -363,3 +363,69 @@ async def test_markdown_parse_link() -> None:
 
     assert parsed["message"] == "URL"
     assert [repr(entity) for entity in parsed["entities"]] == [repr(expected)]
+
+
+async def test_markdown_crossed_entities_round_trip() -> None:
+    # Crossing, not nesting: the italic starts inside the bold and ends outside it.
+    entities = [
+        pyrogram.types.MessageEntity(
+            type=pyrogram.enums.MessageEntityType.BOLD,
+            offset=0,
+            length=5,
+        ),
+        pyrogram.types.MessageEntity(
+            type=pyrogram.enums.MessageEntityType.ITALIC,
+            offset=3,
+            length=7,
+        ),
+    ]
+
+    parsed = await Markdown(None).parse(
+        Markdown.unparse(
+            text="abcdefghij",
+            entities=entities,
+        )
+    )
+
+    assert parsed["message"] == "abcdefghij"
+    assert [repr(entity) for entity in parsed["entities"]] == [
+        repr(
+            pyrogram.raw.types.MessageEntityBold(
+                offset=0,
+                length=5,
+            )
+        ),
+        repr(
+            pyrogram.raw.types.MessageEntityItalic(
+                offset=3,
+                length=7,
+            )
+        ),
+    ]
+
+
+async def test_markdown_parse_keeps_a_malformed_emoji_link_as_typed() -> None:
+    parsed = await Markdown(None).parse("![x](tg://emoji?id=abc)")
+
+    assert parsed["message"] == "![x](tg://emoji?id=abc)"
+    assert parsed["entities"] is None
+
+
+async def test_markdown_parse_keeps_a_malformed_time_link_as_typed() -> None:
+    parsed = await Markdown(None).parse("![x](tg://time?unix=1&format=xyz)")
+
+    assert parsed["message"] == "![x](tg://time?unix=1&format=xyz)"
+    assert parsed["entities"] is None
+
+
+async def test_markdown_parse_unterminated_expandable_quote_runs_to_the_end() -> None:
+    expected = pyrogram.raw.types.MessageEntityBlockquote(
+        offset=0,
+        length=12,
+        collapsed=True,
+    )
+
+    parsed = await Markdown(None).parse("**> a\nplain\nmore")
+
+    assert parsed["message"] == "a\nplain\nmore"
+    assert [repr(entity) for entity in parsed["entities"]] == [repr(expected)]
