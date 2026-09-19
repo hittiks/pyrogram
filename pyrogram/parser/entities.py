@@ -56,7 +56,7 @@ _DATE_TIME_FORMAT_RE: Final[re.Pattern[str]] = re.compile(r"r|w?[dD]?[tT]?")
 
 @dataclass(frozen=True, slots=True)
 class Insertion:
-    """A piece of Markdown `Markdown.unparse` inserts into the message text."""
+    """A piece of markup `unparse` inserts into the message text."""
 
     text: str
     offset: int
@@ -67,9 +67,13 @@ def link_url(attributes: dict[str, str]) -> str:
     return attributes.get("href", "")
 
 
+def valid_date_time_format(date_time_format: str) -> bool:
+    return _DATE_TIME_FORMAT_RE.fullmatch(date_time_format) is not None
+
+
 def date_time_flags(date_time_format: str) -> EntityArgumentsType:
     """The six `messageEntityFormattedDate` flags a format string stands for."""
-    if not _DATE_TIME_FORMAT_RE.fullmatch(date_time_format):
+    if not valid_date_time_format(date_time_format):
         raise ValueError(f"Invalid date-time format string: '{date_time_format}'")
 
     return {
@@ -253,7 +257,11 @@ class EmailSpec(EntitySpec):
 @dataclass(frozen=True)
 class CustomEmojiSpec(EntitySpec):
     def matches(self, tag: str, *, attributes: dict[str, str]) -> bool:
-        return tag in self.html_tags and bool(attributes.get("emoji-id") or attributes.get("id"))
+        # All digits, so that a malformed id keeps the tag literal instead of raising
+        #  out of `int()` in `raw_arguments`.
+        emoji_id: str = attributes.get("emoji-id") or attributes.get("id") or ""
+
+        return tag in self.html_tags and emoji_id.isdigit()
 
     def raw_arguments(self, attributes: dict[str, str]) -> EntityArgumentsType:
         return {"document_id": int(attributes.get("emoji-id") or attributes["id"])}
@@ -271,7 +279,14 @@ class CustomEmojiSpec(EntitySpec):
 @dataclass(frozen=True)
 class DateTimeSpec(EntitySpec):
     def matches(self, tag: str, *, attributes: dict[str, str]) -> bool:
-        return tag in self.html_tags and attributes.get("unix", "").isdigit()
+        if tag not in self.html_tags:
+            return False
+
+        # Both validated here, so that a malformed tag keeps its text instead of raising
+        #  out of `raw_arguments`.
+        return attributes.get("unix", "").isdigit() and valid_date_time_format(
+            attributes.get("format", "")
+        )
 
     def raw_arguments(self, attributes: dict[str, str]) -> EntityArgumentsType:
         return {

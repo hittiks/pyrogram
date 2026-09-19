@@ -52,6 +52,7 @@ from .entities import (
     Insertion,
     spec_for_delimiter,
     spec_for_type,
+    valid_date_time_format,
 )
 from .html import HTML
 
@@ -188,23 +189,36 @@ def _link_markup(label: str, *, url: str, image: bool) -> str | None:
     parsed = urllib.parse.urlparse(url)
     parameters = urllib.parse.parse_qs(parsed.query)
 
+    # Validated before any tag is written: a link that fails here has to survive as the
+    #  text the sender typed, not as an invented literal tag.
     if parsed.netloc == "emoji":
+        emoji_id: str = parameters.get("id", [""])[0]
+
+        if not emoji_id.isdigit():
+            return None
+
         entity = types.MessageEntity(
             type=MessageEntityType.CUSTOM_EMOJI,
             offset=0,
             length=0,
-            custom_emoji_id=parameters.get("id", [""])[0],
+            custom_emoji_id=emoji_id,
         )
 
         return f"{CUSTOM_EMOJI.html_open(entity)}{label}{CUSTOM_EMOJI.html_close(entity)}"
 
     if parsed.netloc == "time":
+        unix_time: str = parameters.get("unix", [""])[0]
+        date_time_format: str = parameters.get("format", [""])[0]
+
+        if not unix_time.isdigit() or not valid_date_time_format(date_time_format):
+            return None
+
         entity = types.MessageEntity(
             type=MessageEntityType.DATE_TIME,
             offset=0,
             length=0,
-            unix_time=parameters.get("unix", [""])[0],
-            date_time_format=parameters.get("format", [""])[0],
+            unix_time=unix_time,
+            date_time_format=date_time_format,
         )
 
         return f"{DATE_TIME.html_open(entity)}{label}{DATE_TIME.html_close(entity)}"
