@@ -31,6 +31,7 @@ from __future__ import annotations as _annotations
 import html
 import re
 import urllib.parse
+from dataclasses import dataclass, field
 from typing import Final
 
 import pyrogram
@@ -50,6 +51,7 @@ from .entities import (
     TEXT_LINK,
     EntitySpec,
     Insertion,
+    InsertionKind,
     spec_for_delimiter,
     spec_for_type,
     valid_date_time_format,
@@ -100,10 +102,51 @@ def _escape_chunk(chunk: str, *, line_prefix: str, following: str) -> str:
     #  character early.
     trailing = chunk[-1:]
 
-    if trailing and trailing in _PAIRABLE_CHARS and trailing == following[:1] and not escaped.endswith(f"\\{trailing}"):
+    if (
+        trailing
+        and trailing in _PAIRABLE_CHARS
+        and trailing == following[:1]
+        and not escaped.endswith(f"\\{trailing}")
+    ):
         escaped = f"{escaped[:-1]}\\{trailing}"
 
     return escaped
+
+
+@dataclass(frozen=True, slots=True, order=True)
+class _PlacedInsertion:
+    """One insertion with its place in the document order.
+
+    Offset first; at one offset the `InsertionKind` rank applies; a longer entity
+    opens earlier and closes later than a shorter one, so the delimiters nest; and
+    among equals the order Telegram sent the entities in decides, reversed for the
+    closes because what opened last must close first.
+    """
+
+    offset: int
+    rank: InsertionKind
+    nesting: int
+    arrival: int
+    insertion: Insertion = field(compare=False)
+
+
+def _place(insertion: Insertion, *, length: int, index: int) -> _PlacedInsertion:
+    if insertion.kind is InsertionKind.CLOSE:
+        return _PlacedInsertion(
+            offset=insertion.offset,
+            rank=insertion.kind,
+            nesting=length,
+            arrival=-index,
+            insertion=insertion,
+        )
+
+    return _PlacedInsertion(
+        offset=insertion.offset,
+        rank=insertion.kind,
+        nesting=-length,
+        arrival=index,
+        insertion=insertion,
+    )
 
 
 def _advance_line_prefix(prefix: str, *, piece: str) -> str:
@@ -130,10 +173,7 @@ def _escape(line: str, *, strict: bool) -> str:
     #  a literal `gt;` in the message.
     pieces = _BACKSLASH_PAIR_RE.split(line)
 
-    return "".join(
-        piece if index % 2 else html.escape(piece)
-        for index, piece in enumerate(pieces)
-    )
+    return "".join(piece if index % 2 else html.escape(piece) for index, piece in enumerate(pieces))
 
 
 def _strip_marker(line: str, *, marker: str) -> str:
@@ -391,23 +431,29 @@ class Markdown:
     @staticmethod
     def unparse(text: str, *, entities: list[types.MessageEntity]) -> str:
         text = utils.add_surrogates(text)
-        insertions: list[Insertion] = []
+        placed: list[_PlacedInsertion] = []
 
-        for entity in entities:
+        for index, entity in enumerate(entities):
             spec = spec_for_type(entity.type)
 
             if spec is None:
                 continue
 
-            insertions.extend(spec.markdown_insertions(entity, message=text))
+            placed.extend(
+                _place(
+                    insertion,
+                    length=entity.length,
+                    index=index,
+                )
+                for insertion in spec.markdown_insertions(entity, message=text)
+            )
 
         parts: list[str] = []
         written: int = 0
         line_prefix: str = ""
 
-        # A stable sort, so that two entities starting at the same offset keep the order
-        #  Telegram sent them in.
-        for insertion in sorted(insertions, key=lambda item: item.offset):
+        for item in sorted(placed):
+            insertion = item.insertion
             chunk = _escape_chunk(
                 text[written : insertion.offset],
                 line_prefix=line_prefix,
