@@ -117,8 +117,23 @@ def _advance_line_prefix(prefix: str, *, piece: str) -> str:
     return combined[:3]
 
 
+# Splitting on the capture keeps every `\X` pair as its own odd-indexed piece.
+_BACKSLASH_PAIR_RE: Final[re.Pattern[str]] = re.compile(r"(\\.)")
+
+
 def _escape(line: str, *, strict: bool) -> str:
-    return html.escape(line) if strict else line
+    if not strict:
+        return line
+
+    # `html.escape` must not reach inside a backslash pair: `\>` would become `\&gt;`,
+    #  and the escaped branch of `MARKDOWN_RE` then reads `\&` instead of `\>`, leaving
+    #  a literal `gt;` in the message.
+    pieces = _BACKSLASH_PAIR_RE.split(line)
+
+    return "".join(
+        piece if index % 2 else html.escape(piece)
+        for index, piece in enumerate(pieces)
+    )
 
 
 def _strip_marker(line: str, *, marker: str) -> str:
