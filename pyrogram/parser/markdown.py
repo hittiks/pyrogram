@@ -64,6 +64,58 @@ MARKDOWN_RE: Final[re.Pattern[str]] = re.compile(
     r"|(?P<image>!?)\[(?P<label>.+?)\]\((?P<url>.+?)\)"
 )
 
+# The characters that read as a delimiter when they stand in a run: `**`, `__`, `--`,
+#  `~~` and `||` are all doubled characters, so a single one is always literal text.
+_PAIRABLE_CHARS: Final[str] = "*_~|-"
+
+# What `unparse` escapes inside a text chunk: the characters that are markup on their
+#  own (`\`, a backtick, `[`, `]`), and any run of a pairable character.
+_CHUNK_ESCAPE_RE: Final[re.Pattern[str]] = re.compile(r"[\\`\[\]]|([*_~|-])\1+")
+
+_QUOTE_AFTER_NEWLINE_RE: Final[re.Pattern[str]] = re.compile(r"(?<=\n)>")
+
+# The line prefixes `_wrap_blockquotes` reads a marker after: nothing, or the `**` a
+#  bold delimiter just wrote, which a following `>` would turn into `**>`.
+_MARKER_PRONE_PREFIXES: Final[frozenset[str]] = frozenset({"", "**"})
+
+
+def _escape_each(match: re.Match[str]) -> str:
+    return "".join(f"\\{character}" for character in match.group(0))
+
+
+def _escape_chunk(chunk: str, *, line_prefix: str, following: str) -> str:
+    """The chunk with everything `parse` would read back as markup escaped.
+
+    Single pairable characters stay as typed, so `snake_case` and `5 > 3` survive
+    unescaped; what gets escaped is what would pair, open a link, or start a quote.
+    """
+    escaped = _CHUNK_ESCAPE_RE.sub(_escape_each, chunk)
+    escaped = _QUOTE_AFTER_NEWLINE_RE.sub(r"\\>", escaped)
+
+    if line_prefix in _MARKER_PRONE_PREFIXES and escaped.startswith(">"):
+        escaped = f"\\{escaped}"
+
+    # A single trailing pairable character merges with the delimiter written right
+    #  after it: `a*` before a `**` close becomes `***`, and the pair then closes one
+    #  character early.
+    trailing = chunk[-1:]
+
+    if trailing and trailing in _PAIRABLE_CHARS and trailing == following[:1] and not escaped.endswith(f"\\{trailing}"):
+        escaped = f"{escaped[:-1]}\\{trailing}"
+
+    return escaped
+
+
+def _advance_line_prefix(prefix: str, *, piece: str) -> str:
+    """What the current output line starts with, capped at what the checks compare to."""
+    combined = f"{prefix}{piece}"
+    newline = combined.rfind("\n")
+
+    if newline != -1:
+        combined = combined[newline + 1 :]
+
+    return combined[:3]
+
 
 def _escape(line: str, *, strict: bool) -> str:
     return html.escape(line) if strict else line
@@ -336,14 +388,29 @@ class Markdown:
 
         parts: list[str] = []
         written: int = 0
+        line_prefix: str = ""
 
         # A stable sort, so that two entities starting at the same offset keep the order
         #  Telegram sent them in.
         for insertion in sorted(insertions, key=lambda item: item.offset):
-            parts.append(text[written : insertion.offset])
+            chunk = _escape_chunk(
+                text[written : insertion.offset],
+                line_prefix=line_prefix,
+                following=insertion.text,
+            )
+
+            parts.append(chunk)
             parts.append(insertion.text)
+
+            line_prefix = _advance_line_prefix(line_prefix, piece=f"{chunk}{insertion.text}")
             written = insertion.offset
 
-        parts.append(text[written:])
+        parts.append(
+            _escape_chunk(
+                text[written:],
+                line_prefix=line_prefix,
+                following="",
+            )
+        )
 
         return utils.remove_surrogates("".join(parts))
