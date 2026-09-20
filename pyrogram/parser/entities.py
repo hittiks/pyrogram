@@ -244,7 +244,10 @@ class TextLinkSpec(EntitySpec):
         return "["
 
     def markdown_close(self, entity: types.MessageEntity) -> str:
-        return f"]({entity.url})"
+        # A `)` in the url would end the link early on the way back through `parse`.
+        url = entity.url.replace("\\", "\\\\").replace(")", "\\)")
+
+        return f"]({url})"
 
 
 @dataclass(frozen=True)

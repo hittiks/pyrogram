@@ -63,8 +63,14 @@ _DELIMITER_PATTERN: Final[str] = "|".join(re.escape(delimiter) for delimiter in 
 MARKDOWN_RE: Final[re.Pattern[str]] = re.compile(
     r"\\(?P<escaped>[\s\S])"
     rf"|(?P<delimiter>{_DELIMITER_PATTERN})"
-    r"|(?P<image>!?)\[(?P<label>.+?)\]\((?P<url>.+?)\)"
+    # A label ends at the first unescaped `]`, a url at the first unescaped `)`; an
+    #  escaped pair passes through whole, so a `\]` or `\)` written by `unparse` stays
+    #  inside instead of closing early.
+    r"|(?P<image>!?)\[(?P<label>(?:\\.|[^\\\]\n])+?)\]\((?P<url>(?:\\.|[^\\)\n])+?)\)"
 )
+
+# One escape pair, capturing the character it protects.
+_ESCAPED_CHAR_RE: Final[re.Pattern[str]] = re.compile(r"\\(.)")
 
 # The characters that read as a delimiter when they stand in a run: `**`, `__`, `--`,
 #  `~~` and `||` are all doubled characters, so a single one is always literal text.
@@ -293,7 +299,10 @@ def _link_markup(label: str, *, url: str, image: bool) -> str | None:
 
         return f"{TEXT_LINK.html_open(entity)}{label}{TEXT_LINK.html_close(entity)}"
 
-    parsed = urllib.parse.urlparse(url)
+    # The strict pass html-escapes the whole line before this one reads it, so a `&` in
+    #  the query arrives as `&amp;` and `parse_qs` would read the wrong key. A text link
+    #  never needs this: its url travels as an attribute, which `HTMLParser` unescapes.
+    parsed = urllib.parse.urlparse(html.unescape(url))
     parameters = urllib.parse.parse_qs(parsed.query)
 
     # Validated before any tag is written: a link that fails here has to survive as the
@@ -370,9 +379,11 @@ def _convert_inline(text: str) -> str:
         delimiter = match.group("delimiter")
 
         if delimiter is None:
+            # The label may itself carry markup, so it goes through this same pass; the
+            #  url is text, so its escape pairs just drop their backslashes.
             markup = _link_markup(
-                match.group("label"),
-                url=match.group("url"),
+                _convert_inline(match.group("label")),
+                url=_ESCAPED_CHAR_RE.sub(r"\1", match.group("url")),
                 image=bool(match.group("image")),
             )
 
