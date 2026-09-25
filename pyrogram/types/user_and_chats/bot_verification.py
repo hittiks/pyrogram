@@ -27,17 +27,23 @@ class BotVerification(Object):
     """Information about bot verification.
 
     Parameters:
-        bot (:obj:`~pyrogram.types.User`):
+        bot (:obj:`~pyrogram.types.User`, *optional*):
             Bot that is verified this user.
 
         custom_emoji_id (``str``):
             Custom emoji icon identifier.
 
-        description (``int``, *optional*):
+        description (``str``):
             Additional description about the verification.
     """
 
-    def __init__(self, *, bot: int, custom_emoji_id: str, description: str):
+    def __init__(
+        self,
+        *,
+        bot: types.User | None = None,
+        custom_emoji_id: str,
+        description: str,
+    ) -> None:
         self.bot = bot
         self.custom_emoji_id = custom_emoji_id
         self.description = description
