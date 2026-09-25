@@ -66,7 +66,10 @@ api:
 
 # Both docs recipes below build the same tree with the same builder, so the arguments and the
 #  page generator each have one home here rather than a copy per recipe.
-SPHINX_ARGS := -b dirhtml "docs/source" "docs/build/html" -j auto
+#  `-W` fails `docs` on any warning, `--keep-going` still reports all of them. `sphinx-autobuild`
+#  keeps serving on a failed rebuild and prints the exit code instead.
+#  https://github.com/sphinx-doc/sphinx-autobuild/blob/fd726c54b3610e5f3393e7098af972a6cf163e69/sphinx_autobuild/build.py#L51-L58
+SPHINX_ARGS := -b dirhtml "docs/source" "docs/build/html" -j auto -W --keep-going
 
 docs-api:
 	cd compiler/docs && $(PYTHON) compiler.py
