@@ -28,19 +28,23 @@ class ProximityAlertTriggered(Object):
     """Information about a proximity alert.
 
     Parameters:
-        traveler (:obj:`~pyrogram.types.User`):
-            Chat that triggered the proximity alert.
+        traveler (:obj:`~pyrogram.types.Chat`, *optional*):
+            User or channel that triggered the proximity alert.
 
-        watcher (:obj:`~pyrogram.types.User`):
-            Chat that subscribed for the proximity alert.
+        watcher (:obj:`~pyrogram.types.Chat`, *optional*):
+            User or channel that subscribed for the proximity alert.
 
         distance (``str``):
             The distance between the users.
     """
 
     def __init__(
-        self, *, traveler: pyrogram.types.User, watcher: pyrogram.types.User, distance: str
-    ):
+        self,
+        *,
+        traveler: pyrogram.types.Chat | None,
+        watcher: pyrogram.types.Chat | None,
+        distance: str,
+    ) -> None:
         super().__init__()
 
         self.traveler = traveler
