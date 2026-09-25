@@ -23,7 +23,10 @@ import os
 import re
 import shutil
 from dataclasses import dataclass
-from typing import Literal
+from typing import TYPE_CHECKING, Final, Literal
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 HOME = "compiler/docs"
 DESTINATION = "docs/source/telegram"
@@ -36,6 +39,27 @@ BASE_PATH = "pyrogram/raw/base"
 FUNCTIONS_BASE = "functions"
 TYPES_BASE = "types"
 BASE_BASE = "base"
+
+# Public `Client` methods deliberately absent from every `categories` block in
+#  `pyrogram_api()`, each with the reason it has no page.
+UNLISTED_CLIENT_METHODS: Final[Mapping[str, str]] = {
+    "authorize": "internal: the interactive login `start()` runs",
+    "authorize_qr": "internal: the QR login `start()` runs",
+    "fetch_peers": "internal: caches the peers of responses and updates",
+    "get_message_split_ranges": "internal: cached split ranges for the `*_count` methods",
+    "guess_extension": "internal: file extension helper of `download_media()`",
+    "guess_mime_type": "internal: MIME helper of the upload methods",
+    "handle_download": "internal: worker behind `download_media()`",
+    "handle_updates": "internal: the session hands every update to it",
+    "load_plugins": "internal: `start()` loads the plugins",
+    "load_session": "internal: `connect()` loads the session",
+    "updates_watchdog": "internal: `initialize()` task recovering missed updates",
+    "send_code": "alias of `send_phone_number_code`",
+    "resend_code": "alias of `resend_phone_number_code`",
+    "get_received_gifts": "alias of `get_chat_gifts`",
+    "get_received_gifts_count": "alias of `get_chat_gifts_count`",
+    "send_web_page": "deprecated: use `send_message`",
+}
 
 
 def snek(s: str):
