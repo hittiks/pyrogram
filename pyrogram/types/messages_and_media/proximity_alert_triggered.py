@@ -34,8 +34,8 @@ class ProximityAlertTriggered(Object):
         watcher (:obj:`~pyrogram.types.Chat`, *optional*):
             User or channel that subscribed for the proximity alert.
 
-        distance (``str``):
-            The distance between the users.
+        distance (``int``):
+            The distance between the two sides, in meters.
     """
 
     def __init__(
@@ -43,7 +43,7 @@ class ProximityAlertTriggered(Object):
         *,
         traveler: pyrogram.types.Chat | None,
         watcher: pyrogram.types.Chat | None,
-        distance: str,
+        distance: int,
     ) -> None:
         super().__init__()
 
