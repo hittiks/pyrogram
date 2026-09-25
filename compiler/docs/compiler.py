@@ -756,6 +756,61 @@ def pyrogram_api():
 
         f.write(template.format(**fmt_keys))
 
+    # Decorators
+
+    categories = {
+        "decorators": """
+        Decorators
+            on_message
+            on_edited_message
+            on_business_message
+            on_edited_business_message
+            on_deleted_messages
+            on_deleted_business_messages
+            on_guest_message
+            on_message_reaction_count
+            on_message_reaction
+            on_business_connection
+            on_story
+            on_callback_query
+            on_chat_boost
+            on_chat_join_request
+            on_chat_member_updated
+            on_chosen_inline_result
+            on_inline_query
+            on_poll
+            on_pre_checkout_query
+            on_purchased_paid_media
+            on_shipping_query
+            on_user_status
+            on_start
+            on_stop
+            on_connect
+            on_disconnect
+            on_error
+            on_managed_bot
+            on_stopped_message_generation
+            on_raw_update
+        """,
+    }
+
+    with open(HOME + "/template/decorators.rst") as template_file:
+        template = template_file.read()
+
+    with open(PYROGRAM_API_DEST + "/decorators.rst", "w") as page:
+        _, *decorators = get_title_list(categories["decorators"])
+
+        page.write(
+            template.format(
+                decorators_hlist="\n    ".join(
+                    f"- :meth:`~Client.{decorator}`" for decorator in decorators
+                ),
+                decorators_details="\n".join(
+                    f".. autodecorator:: pyrogram.Client.{decorator}()" for decorator in decorators
+                ),
+            )
+        )
+
     # Types
 
     categories = {
