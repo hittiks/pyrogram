@@ -587,6 +587,8 @@ def pyrogram_api():
             send_game
             set_game_score
             get_game_high_scores
+            set_inline_game_score
+            get_inline_game_high_scores
             set_bot_commands
             get_bot_commands
             delete_bot_commands
