@@ -18,6 +18,7 @@
 
 from __future__ import annotations as _annotations
 
+import pyrogram
 from pyrogram import raw, types
 
 from ..object import Object
@@ -50,7 +51,9 @@ class BotVerification(Object):
 
     @staticmethod
     async def _parse(
-        client, verification: raw.types.BotVerification, users
+        client: pyrogram.Client,
+        verification: raw.types.BotVerification | None,
+        users: dict[int, raw.base.User],
     ) -> BotVerification | None:
         if not verification:
             return None
