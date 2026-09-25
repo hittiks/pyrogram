@@ -37,7 +37,7 @@ from pyrogram import Client, raw
 from pyrogram.handlers import MessageHandler, RawUpdateHandler
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Generator
 
     from pyrogram.handlers.handler import Handler
     from pyrogram.types import Message
@@ -166,7 +166,7 @@ async def test_start_rebuilds_the_queue_for_the_loop_about_to_read_it(
 
 
 @pytest.fixture
-def frequent_thread_switches() -> Iterator[None]:
+def frequent_thread_switches() -> Generator[None]:
     """Switch threads inside the copy-and-rebind rather than around it.
 
     The default interval is 5ms, which is far longer than a registration takes, so two
