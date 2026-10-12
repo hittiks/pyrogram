@@ -86,7 +86,7 @@ class Parser(HTMLParser):
         # One entry per open `code` tag, saying whether it was folded into a `pre`.
         self.code_folded: list[bool] = []
 
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]], /) -> None:
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         # A valueless attribute such as the `expandable` of a blockquote parses as `None`.
         attributes = {name: value or "" for name, value in attrs}
 
@@ -126,7 +126,7 @@ class Parser(HTMLParser):
 
         return True
 
-    def handle_endtag(self, tag: str, /) -> None:
+    def handle_endtag(self, tag: str) -> None:
         if tag == "code" and self.code_folded and self.code_folded.pop():
             return
 
@@ -137,7 +137,7 @@ class Parser(HTMLParser):
             )
         )
 
-    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]], /) -> None:
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         del tag, attrs
 
         # No entity tag is self-closing, so `<br/>` is text and stays text.
