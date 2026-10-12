@@ -28,7 +28,7 @@ from ..object import Object
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
-    from datetime import datetime
+    from datetime import datetime, timedelta
 
     from pyrogram._typing import PathType
 
@@ -548,10 +548,10 @@ class Chat(Object):
             The field is only available to chat administrators
             Returned only in :meth:`~pyrogram.Client.get_chat`.
 
-        community_id (``int``, *optional*)
+        community_id (``int``, *optional*):
             The identifier of the community to which the chat belongs.
 
-        community (:obj:`~pyrogram.types.Community`, *optional*)
+        community (:obj:`~pyrogram.types.Community`, *optional*):
             The :obj:`~pyrogram.types.Community` to which the chat belongs.
 
         raw (:obj:`~pyrogram.raw.types.UserFull` | :obj:`~pyrogram.raw.types.ChatFull` | :obj:`~pyrogram.raw.types.ChannelFull`, *optional*):
@@ -1115,9 +1115,9 @@ class Chat(Object):
         users: dict[int, raw.base.User],
         chats: dict[int, raw.base.Chat],
     ):
-        if isinstance(peer, (raw.types.PeerUser, raw.types.InputPeerUser)):
+        if isinstance(peer, utils.PEERS_WITH_A_USER_ID):
             return await Chat._parse_user_chat(client, users.get(peer.user_id))
-        elif isinstance(peer, (raw.types.PeerChat, raw.types.InputPeerChat)):
+        elif isinstance(peer, utils.PEERS_WITH_A_CHAT_ID):
             return await Chat._parse_chat_chat(client, chats.get(peer.chat_id))
         else:
             return await Chat._parse_channel_chat(client, chats.get(peer.channel_id))
@@ -1129,7 +1129,7 @@ class Chat(Object):
         users: dict[int, raw.base.User],
         chats: dict[int, raw.base.Chat],
     ) -> Chat:
-        parsed_chat = await Chat._parse_user_chat(client, users[user.id])
+        parsed_chat = utils.require_parsed(await Chat._parse_user_chat(client, users[user.id]))
         parsed_chat.raw = user
 
         parsed_chat.settings = await types.ChatSettings._parse(client, user.settings, users)
@@ -1261,7 +1261,7 @@ class Chat(Object):
         users: dict[int, raw.base.User],
         chats: dict[int, raw.base.Chat],
     ) -> Chat:
-        parsed_chat = await Chat._parse_chat_chat(client, chats[chat.id])
+        parsed_chat = utils.require_parsed(await Chat._parse_chat_chat(client, chats[chat.id]))
         parsed_chat.raw = chat
 
         parsed_chat.description = chat.about or None
@@ -1306,7 +1306,9 @@ class Chat(Object):
         users: dict[int, raw.base.User],
         chats: dict[int, raw.base.Chat],
     ) -> Chat:
-        parsed_chat = await Chat._parse_channel_chat(client, chats[channel.id])
+        parsed_chat = utils.require_parsed(
+            await Chat._parse_channel_chat(client, chats[channel.id])
+        )
         parsed_chat.raw = channel
 
         parsed_chat.description = channel.about or None
@@ -1686,7 +1688,7 @@ class Chat(Object):
     async def ban_member(
         self,
         user_id: int | str,
-        until_date: datetime | None = None,
+        until_date: datetime | timedelta | None = None,
         revoke_messages: bool | None = None,
     ) -> types.Message | bool:
         """Bound method *ban_member* of :obj:`~pyrogram.types.Chat`.
@@ -1710,10 +1712,11 @@ class Chat(Object):
                 Unique identifier (int) or username (str) of the target user.
                 For a contact that exists in your Telegram address book you can use his phone number (str).
 
-            until_date (:py:obj:`~datetime.datetime`, *optional*):
+            until_date (:py:obj:`~datetime.datetime` | :py:obj:`~datetime.timedelta`, *optional*):
                 Date when the user will be unbanned.
                 If user is banned for more than 366 days or less than 30 seconds from the current time they are
                 considered to be banned forever. Defaults to epoch (ban forever).
+                A :py:obj:`~datetime.timedelta` is counted from now.
 
             revoke_messages (``bool``, *optional*):
                 Pass True to delete all messages in the chat for the user who is being removed.
@@ -1769,7 +1772,7 @@ class Chat(Object):
         self,
         user_id: int | str,
         permissions: types.ChatPermissions,
-        until_date: datetime | None = None,
+        until_date: datetime | timedelta | None = None,
     ) -> types.Chat:
         """Bound method *unban_member* of :obj:`~pyrogram.types.Chat`.
 
@@ -1796,10 +1799,11 @@ class Chat(Object):
             permissions (:obj:`~pyrogram.types.ChatPermissions`):
                 New user permissions.
 
-            until_date (:py:obj:`~datetime.datetime`, *optional*):
+            until_date (:py:obj:`~datetime.datetime` | :py:obj:`~datetime.timedelta`, *optional*):
                 Date when the user will be unbanned.
                 If user is banned for more than 366 days or less than 30 seconds from the current time they are
                 considered to be banned forever. Defaults to epoch (ban forever).
+                A :py:obj:`~datetime.timedelta` is counted from now.
 
         Returns:
             :obj:`~pyrogram.types.Chat`: On success, a chat object is returned.
@@ -1899,7 +1903,7 @@ class Chat(Object):
         """
         return await self._client.leave_chat(self.id)
 
-    async def export_invite_link(self) -> types.ChatInviteLink:
+    async def export_invite_link(self) -> str:
         """Bound method *export_invite_link* of :obj:`~pyrogram.types.Chat`.
 
         Use as a shortcut for:
@@ -1914,7 +1918,7 @@ class Chat(Object):
                 chat.export_invite_link()
 
         Returns:
-            :obj:`~pyrogram.types.ChatInviteLink`: On success, the exported invite link is returned.
+            ``str``: On success, the exported invite link is returned.
 
         Raises:
             ValueError: In case the chat_id belongs to a user.
@@ -2031,7 +2035,7 @@ class Chat(Object):
         """
         return await self._client.mark_chat_unread(self.id)
 
-    async def set_protected_content(self, enabled: bool) -> bool:
+    async def set_protected_content(self, enabled: bool) -> types.Message | bool:
         """Bound method *set_protected_content* of :obj:`~pyrogram.types.Chat`.
 
         Use as a shortcut for:
@@ -2050,7 +2054,8 @@ class Chat(Object):
                 await chat.set_protected_content(enabled)
 
         Returns:
-            ``bool``: On success, True is returned.
+            :obj:`~pyrogram.types.Message` | ``bool``: On success, a service message will be returned (when applicable),
+            otherwise, in case a message object couldn't be returned, True is returned.
         """
         return await self._client.set_chat_protected_content(self.id, enabled=enabled)
 
@@ -2073,7 +2078,7 @@ class Chat(Object):
         """
         return await self._client.unpin_all_chat_messages(self.id)
 
-    async def mute(self, mute_until: datetime | None = None) -> bool:
+    async def mute(self, mute_until: datetime | timedelta | None = None) -> bool:
         """Bound method *mute* of :obj:`~pyrogram.types.Chat`.
 
         Use as a shortcut for:
@@ -2083,11 +2088,9 @@ class Chat(Object):
             client.update_chat_notifications(chat_id, mute=True, mute_until=mute_until)
 
         Parameters:
-            mute (``bool``, *optional*):
-                Pass True if you want to mute chat.
-
-            until_date (:py:obj:`~datetime.datetime`, *optional*):
-                Date when the user will be unmuted. Defaults to forever.
+            mute_until (:py:obj:`~datetime.datetime` | :py:obj:`~datetime.timedelta`, *optional*):
+                Date when the chat will be unmuted. Defaults to forever.
+                A :py:obj:`~datetime.timedelta` is counted from now.
 
         Example:
             .. code-block:: python

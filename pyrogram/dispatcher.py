@@ -22,7 +22,6 @@ import asyncio
 import inspect
 import logging
 import threading
-from collections import OrderedDict
 from typing import Any
 
 import pyrogram
@@ -148,7 +147,7 @@ class Dispatcher:
         self.updates_queue: asyncio.Queue[
             tuple[raw.base.Update, dict[int, raw.base.User], dict[int, raw.base.Chat]] | None
         ] = asyncio.Queue()
-        self.groups: OrderedDict[int, list[Handler[Any]]] = OrderedDict()
+        self.groups: dict[int, list[Handler[Any]]] = {}
 
         # `add_handler` is called from whatever thread the caller happens to be on, and every
         #  writer below reads `groups`, copies it and rebinds the attribute. Without this two
@@ -157,6 +156,8 @@ class Dispatcher:
         #  than an `asyncio` one because none of these methods is a coroutine and a loop need
         #  not exist yet.
         self._groups_lock = threading.Lock()
+
+        self._accepting_updates: bool = False
 
         async def message_parser(update, users, chats):
             return (
@@ -371,6 +372,10 @@ class Dispatcher:
     async def start(self):
         self._rebuild_loop_bound_state()
 
+        # Open before `start_handler`, not when the workers exist: an update arriving while it
+        #  runs is delivered once they start, and its `pts` is already saved by then.
+        self._accepting_updates = not self.client.no_updates
+
         if callable(self.client.start_handler):
             try:
                 await self.client.start_handler(self.client)
@@ -394,26 +399,45 @@ class Dispatcher:
                 log.exception(e)
 
         if not self.client.no_updates:
+            # Closed before the sentinels go in, so `enqueue` drops what arrives from here on
+            #  instead of queueing it behind them for no worker.
+            self._accepting_updates = False
+
             for _ in range(self.client.workers):
                 self.updates_queue.put_nowait(None)
 
-            for i in self.handler_worker_tasks:
-                await i
+            for handler_worker_task in self.handler_worker_tasks:
+                await handler_worker_task
+
+            self.handler_worker_tasks.clear()
 
             if clear_handlers:
-                self.handler_worker_tasks.clear()
-
                 with self._groups_lock:
-                    self.groups = OrderedDict()
+                    self.groups = {}
 
             log.info("Stopped %s HandlerTasks", self.client.workers)
+
+    def enqueue(
+        self,
+        update: raw.base.Update,
+        *,
+        users: dict[int, raw.base.User],
+        chats: dict[int, raw.base.Chat],
+    ) -> None:
+        # Only `start()` spawns the workers that drain the queue, so a client that only called
+        #  `connect()` queued every update forever. Nothing is lost by dropping: `start()`
+        #  replaces the queue, so a packet put before it never reached a worker either.
+        if not self._accepting_updates:
+            return
+
+        self.updates_queue.put_nowait((update, users, chats))
 
     def add_handler(self, handler: Handler[Any], group: int) -> None:
         with self._groups_lock:
             groups = self._copy_groups()
             groups.setdefault(group, []).append(handler)
 
-            self.groups = OrderedDict(sorted(groups.items()))
+            self.groups = dict(sorted(groups.items()))
 
     def remove_handler(self, handler: Handler[Any], group: int) -> None:
         with self._groups_lock:
@@ -428,9 +452,9 @@ class Dispatcher:
 
             self.groups = groups
 
-    def _copy_groups(self) -> OrderedDict[int, list[Handler[Any]]]:
+    def _copy_groups(self) -> dict[int, list[Handler[Any]]]:
         """A copy the registration methods edit, so a dispatching worker keeps the old one."""
-        return OrderedDict((group, list(handlers)) for group, handlers in self.groups.items())
+        return {group: list(handlers) for group, handlers in self.groups.items()}
 
     async def handler_worker(self) -> None:
         while True:

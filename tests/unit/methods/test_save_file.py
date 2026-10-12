@@ -19,11 +19,12 @@
 from __future__ import annotations as _annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, cast
 
 import pytest
 
-from pyrogram import raw, types
+import pyrogram
+from pyrogram import StopTransmission, raw, types
 from pyrogram.methods.advanced.save_file import SaveFile
 
 if TYPE_CHECKING:
@@ -78,6 +79,12 @@ class Uploader(SaveFile):
         return self.media
 
 
+def uploader(media: Media) -> pyrogram.Client:
+    # `Uploader` subclasses only the mixin, and the `save_file` overloads pin
+    #  `self: pyrogram.Client`.
+    return cast("pyrogram.Client", Uploader(media))
+
+
 @pytest.fixture
 def three_parts(tmp_path: Path) -> str:
     path = tmp_path / "upload.bin"
@@ -90,7 +97,7 @@ def three_parts(tmp_path: Path) -> str:
 async def test_a_finished_upload_describes_every_part(three_parts: str) -> None:
     media = Media()
 
-    file = await Uploader(media).save_file(three_parts)
+    file = await uploader(media).save_file(three_parts)
 
     assert isinstance(file, raw.types.InputFile)
     assert file.parts == 3
@@ -105,7 +112,7 @@ async def test_a_part_the_server_refused_reaches_the_caller(three_parts: str) ->
     media = Media(rejects_part=1)
 
     with pytest.raises(ConnectionError):
-        await Uploader(media).save_file(three_parts)
+        await uploader(media).save_file(three_parts)
 
 
 @pytest.mark.asyncio
@@ -113,7 +120,7 @@ async def test_the_parts_around_the_refused_one_are_still_sent(three_parts: str)
     media = Media(rejects_part=1)
 
     with pytest.raises(ConnectionError):
-        await Uploader(media).save_file(three_parts)
+        await uploader(media).save_file(three_parts)
 
     # The upload is not aborted mid-way: a worker that stops consuming leaves the producer
     #  blocked on a queue of size one, so every part is offered and only the answer is remembered.
@@ -124,7 +131,11 @@ async def test_the_parts_around_the_refused_one_are_still_sent(three_parts: str)
 async def test_re_uploading_one_missing_part_answers_with_nothing(three_parts: str) -> None:
     media = Media()
 
-    file = await Uploader(media).save_file(three_parts, file_id=_FILE_ID, file_part=1)
+    file = await uploader(media).save_file(
+        three_parts,
+        file_id=_FILE_ID,
+        file_part=1,
+    )
 
     assert file is None
     assert media.saved_parts == [1]
@@ -135,9 +146,47 @@ async def test_a_missing_part_the_server_refused_reaches_the_caller_too(three_pa
     media = Media(rejects_part=1)
 
     with pytest.raises(ConnectionError):
-        await Uploader(media).save_file(three_parts, file_id=_FILE_ID, file_part=1)
+        await uploader(media).save_file(
+            three_parts,
+            file_id=_FILE_ID,
+            file_part=1,
+        )
 
 
 @pytest.mark.asyncio
 async def test_no_path_is_not_an_upload_at_all() -> None:
-    assert await Uploader(Media()).save_file(None) is None
+    assert await uploader(Media()).save_file(None) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "asynchronous",
+    [
+        pytest.param(True, id="async-callback"),
+        pytest.param(False, id="sync-callback-via-executor"),
+    ],
+)
+async def test_stop_transmission_from_a_progress_callback_ends_the_upload(
+    three_parts: str,
+    *,
+    asynchronous: bool,
+) -> None:
+    media = Media()
+    calls: list[int] = []
+
+    def cancel_on_second_part(current: int, total: int) -> None:
+        calls.append(current)
+
+        if len(calls) == 2:
+            raise StopTransmission
+
+    async def asynchronous_cancel(current: int, total: int) -> None:
+        cancel_on_second_part(current, total)
+
+    progress = asynchronous_cancel if asynchronous else cancel_on_second_part
+
+    with pytest.raises(StopTransmission):
+        await uploader(media).save_file(three_parts, progress=progress)
+
+    # The abort lands between parts: the two already produced were sent, the third never was.
+    assert media.saved_parts == [0, 1]
