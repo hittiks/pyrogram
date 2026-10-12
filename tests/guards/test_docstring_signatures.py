@@ -102,8 +102,6 @@ _EXEMPT: Final[dict[str, str]] = {
     "pyrogram/types/messages_and_media/story.py": f"{_AIOFILES}; {_PARSE_REWRITE}",
     "pyrogram/types/messages_and_media/successful_payment.py": _PARSE_REWRITE,
     "pyrogram/types/messages_and_media/web_page.py": _PARSE_REWRITE,
-    "pyrogram/types/user_and_chats/bot_verification.py": _PARSE_REWRITE,
-    "pyrogram/types/user_and_chats/chat_event.py": _PARSE_REWRITE,
     "pyrogram/types/user_and_chats/chat_folder_invite_link_info.py": _PARSE_REWRITE,
     "pyrogram/types/user_and_chats/chat_invite_link.py": _PARSE_REWRITE,
     "pyrogram/types/user_and_chats/chat_permissions.py": _PARSE_REWRITE,
