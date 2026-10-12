@@ -229,7 +229,12 @@ class SendInvoice:
                 flexible=is_flexible,
                 phone_to_provider=send_phone_number_to_provider,
                 email_to_provider=send_email_to_provider,
-                max_tip_amount=max_tip_amount,
+                # `invoice` in `main_api.tl` puts `max_tip_amount` and `suggested_tip_amounts` on one bit,
+                #  `flags.8`, so tips alone set it with no `long` to write and `write()` raised
+                #  `AttributeError`. 0 is the default the docstring states.
+                max_tip_amount=0
+                if max_tip_amount is None and suggested_tip_amounts
+                else max_tip_amount,
                 suggested_tip_amounts=suggested_tip_amounts,
                 recurring=True if subscription_expiration_date is not None else None,
                 subscription_period=subscription_expiration_date,
