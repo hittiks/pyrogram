@@ -26,10 +26,16 @@ from __future__ import annotations as _annotations
 
 import ast
 import re
+from dataclasses import dataclass
 from re import Pattern
-from typing import TYPE_CHECKING, Final, NamedTuple
+from typing import TYPE_CHECKING, Final
 
-from tests.guards.name_resolution import REPOSITORY_ROOT, hand_written_files, resolves
+from tests.guards.name_resolution import (
+    REPOSITORY_ROOT,
+    hand_written_files,
+    resolves,
+    source_of,
+)
 
 if TYPE_CHECKING:
     import pathlib
@@ -54,7 +60,8 @@ _DOCUMENTED_NODES: Final[tuple[type, ...]] = (
 _LABEL_THAT_IS_A_PATH: Final[Pattern[str]] = re.compile(r"^[\w.]+(?:\(\))?$")
 
 
-class Reference(NamedTuple):
+@dataclass(frozen=True)
+class Reference:
     target: str
     path: pathlib.Path
     line: int
@@ -106,7 +113,7 @@ def label_agrees_with_target(label: str, *, target: str) -> bool:
 
 
 def docstrings_of(path: pathlib.Path) -> Iterator[tuple[str, int]]:
-    lines = path.read_text(encoding="utf-8").splitlines()
+    lines = source_of(path).splitlines()
 
     for node in ast.walk(ast.parse("\n".join(lines))):
         if not isinstance(node, _DOCUMENTED_NODES) or not ast.get_docstring(node):
@@ -123,7 +130,13 @@ def hand_written_references() -> list[Reference]:
         for docstring, first_line in docstrings_of(path):
             for offset, line in enumerate(docstring.splitlines()):
                 for label, target in references_in(line):
-                    references.append(Reference(target, path, first_line + offset, label))
+                    reference = Reference(
+                        target=target,
+                        path=path,
+                        line=first_line + offset,
+                        label=label,
+                    )
+                    references.append(reference)
 
     return references
 
