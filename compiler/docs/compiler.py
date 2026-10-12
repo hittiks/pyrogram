@@ -806,10 +806,10 @@ def pyrogram_api():
         """,
     }
 
-    with open(HOME + "/template/decorators.rst") as template_file:
+    with open(HOME + "/template/decorators.rst", encoding="utf-8") as template_file:
         template = template_file.read()
 
-    with open(PYROGRAM_API_DEST + "/decorators.rst", "w") as page:
+    with open(PYROGRAM_API_DEST + "/decorators.rst", "w", encoding="utf-8") as page:
         _, *decorators = get_title_list(categories["decorators"])
 
         page.write(
