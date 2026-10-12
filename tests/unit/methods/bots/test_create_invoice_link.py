@@ -66,3 +66,4 @@ async def test_the_tip_maximum_is_written_whenever_tips_are(
 
     assert isinstance(request, raw.functions.payments.ExportInvoice)
     assert request.invoice_media.invoice.max_tip_amount == expected
+    request.write()

@@ -20,6 +20,7 @@ from __future__ import annotations as _annotations
 
 from .amounts import (
     from_nano,
+    get_max_tip_amount,
     get_premium_duration_day_count,
     get_premium_duration_month_count,
     to_nano,
@@ -84,6 +85,7 @@ __all__ = [
     "get_input_stargift",
     "get_peer_id",
     "get_peer_type",
+    "get_max_tip_amount",
     "get_premium_duration_day_count",
     "get_premium_duration_month_count",
     "get_raw_peer_id",
