@@ -79,6 +79,18 @@ def _quiz(
     )
 
 
+def _record(*, video_portrait: bool | None) -> raw.functions.phone.ToggleGroupCallRecord:
+    return raw.functions.phone.ToggleGroupCallRecord(
+        call=raw.types.InputGroupCall(
+            id=1,
+            access_hash=2,
+        ),
+        start=False,
+        video=True,
+        video_portrait=video_portrait,
+    )
+
+
 @pytest.mark.parametrize(
     ("sent", "expected"),
     [
@@ -99,10 +111,32 @@ def _quiz(
             _quiz(solution_entities=[]),
             id="vector-sharing-bit-none",
         ),
+        # `video` sets the bit `video_portrait` shares, so the `Bool` is written as `False`.
+        pytest.param(
+            _record(video_portrait=None),
+            _record(video_portrait=False),
+            id="scalar-sharing-bit-none",
+        ),
     ],
 )
 def test_written_flags_read_back_whole(sent: TLObject, *, expected: TLObject) -> None:
-    buffer = BytesIO(sent.write())
+    written = sent.write()
+    buffer = BytesIO(written)
 
+    # Bytes first: `Bool.read()` past the end returns `False`, so a short payload still
+    #  reads back equal.
+    assert written == expected.write()
     assert TLObject.read(buffer) == expected
     assert buffer.read() == b""
+
+
+def test_an_object_missing_under_a_bit_its_sibling_set_is_refused() -> None:
+    """`address` sets the bit `geo_point` shares; skipping `geo_point` would send a short request."""
+    channel = raw.functions.channels.CreateChannel(
+        title="title",
+        about="about",
+        address="address",
+    )
+
+    with pytest.raises(AttributeError, match="'NoneType' object has no attribute 'write'"):
+        channel.write()
