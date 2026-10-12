@@ -23,9 +23,10 @@ jobs:
         python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
 
     steps:
-      # The setup steps are written once here and reused by YAML alias. Actions has no merge
-      #  keys (`<<:`), so `setup-uv` shares only its `uses:` and each job keeps its own `with:`.
-      #  https://github.com/orgs/community/discussions/185877
+      # `checkout` and `make sync` are written once here and reused by YAML alias. `setup-uv` is
+      #  written out per job: Actions has no merge keys (`<<:`) to share its `uses:` under a
+      #  per-job `with:` (https://github.com/orgs/community/discussions/185877), and Dependabot
+      #  bumps the SHA of an anchored `uses:` scalar but leaves its version comment stale.
       - &checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
@@ -33,7 +34,7 @@ jobs:
       #  Python setup step: it downloads a managed CPython for every version in the
       #  matrix, including versions no longer shipped as an official macOS arm64 build.
       - name: Set up uv and Python ${{ matrix.python-version }}
-        uses: &setup-uv astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -60,7 +61,7 @@ jobs:
       - *checkout
 
       - name: Set up uv and Python
-        uses: *setup-uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           python-version: "3.14"
 
@@ -81,7 +82,7 @@ jobs:
       - *checkout
 
       - name: Set up uv and Python
-        uses: *setup-uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           python-version: "3.14"
 
@@ -106,7 +107,7 @@ jobs:
       - *checkout
 
       - name: Set up uv
-        uses: *setup-uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
 
       # Builds `.venv-floor` and generates the API in it, so no `make sync` or `make api` here.
       - name: Run the suite at the dependency floor
@@ -121,7 +122,7 @@ jobs:
       - *checkout
 
       - name: Set up uv
-        uses: *setup-uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
 
       - name: Run the suite at the dependency ceiling
         run: |
