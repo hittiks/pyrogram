@@ -66,8 +66,10 @@ api:
 
 # Both docs recipes below build the same tree with the same builder, so the arguments and the
 #  page generator each have one home here rather than a copy per recipe.
-#  `-W` fails `docs` on any warning, `--keep-going` still reports all of them. `sphinx-autobuild`
-#  keeps serving on a failed rebuild and prints the exit code instead.
+#  `-W` fails `docs` on any warning. From Sphinx 8.1 it reports every warning before failing;
+#  `--keep-going` does the same on the 7.x releases the `docs` group still allows, which stop at
+#  the first. https://github.com/sphinx-doc/sphinx/blob/a1510de4777eaa2e569435f95b05f6f3293d7035/CHANGES.rst?plain=1#L84-L88
+#  `sphinx-autobuild` keeps serving on a failed rebuild and prints the exit code instead.
 #  https://github.com/sphinx-doc/sphinx-autobuild/blob/fd726c54b3610e5f3393e7098af972a6cf163e69/sphinx_autobuild/build.py#L51-L58
 SPHINX_ARGS := -b dirhtml "docs/source" "docs/build/html" -j auto -W --keep-going
 
