@@ -43,7 +43,7 @@ class GetUser:
 
         Raises:
             PeerIdInvalid: In case *user_id* belongs to no user. The identifier is on the error's
-                ``value``.
+                ``value``. A deleted account is still a user, and comes back with ``is_deleted`` set.
 
         Example:
             .. code-block:: python
@@ -56,7 +56,7 @@ class GetUser:
         user = await self.get_users(user_id)
 
         # `get_users()` answers `None` here for an identifier that belongs to no user: a channel,
-        #  a chat, a deleted account, or a peer this account cannot see. That is the one thing a
+        #  a chat, an id no account has, or a peer this account cannot see. That is the one thing a
         #  caller who named a single user cannot use, which is why this method exists beside it.
         if user is None:
             raise PeerIdInvalid(value=user_id)

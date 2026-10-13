@@ -98,3 +98,21 @@ async def test_a_list_leaves_out_the_accounts_that_no_longer_exist() -> None:
     users = await answerer([a_user(1), raw.types.UserEmpty(id=2), a_user(3)]).get_users([1, 2, 3])
 
     assert [user.id for user in users] == [1, 3]
+
+
+@pytest.mark.asyncio
+async def test_a_deleted_account_is_still_a_user() -> None:
+    # Telegram sends a deleted account as a `user` with `deleted` set, not as a `userEmpty`, so
+    #  it is not one of the identifiers that answer `None`: `get_user()` hands it back too.
+    #  https://core.telegram.org/constructor/user
+    deleted = raw.types.User(
+        id=42,
+        deleted=True,
+        usernames=[],
+        restriction_reason=[],
+    )
+
+    user = await answerer([deleted]).get_users(42)
+
+    assert user.id == 42
+    assert user.is_deleted is True

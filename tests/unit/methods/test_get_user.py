@@ -37,7 +37,7 @@ class Answerer(GetUser):
 
 @pytest.mark.asyncio
 async def test_an_identifier_that_belongs_to_no_user_raises() -> None:
-    # `get_users()` keeps its `None` for a channel, a chat, a deleted account or a peer this
+    # `get_users()` keeps its `None` for a channel, a chat, an id no account has or a peer this
     #  account cannot see. `get_user()` exists to turn exactly that into an error at the call
     #  site, so the identifier is named where the caller can still act on it.
     with pytest.raises(PeerIdInvalid) as raised:

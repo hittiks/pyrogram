@@ -56,10 +56,11 @@ class GetUsers:
 
         Returns:
             :obj:`~pyrogram.types.User` | List of :obj:`~pyrogram.types.User` | ``None``: In case *user_ids* was not a
-            list, a single user is returned, otherwise a list of users is returned. Telegram answers with nothing
-            for an identifier that belongs to no user (a channel, a chat, a deleted account, or a peer this
-            account cannot see), in which case ``None`` is returned for a single identifier and the list simply
-            leaves that identifier out. Use :meth:`~pyrogram.Client.get_user` to be told which one is missing.
+            list, a single user is returned, otherwise a list of users is returned. Telegram answers with nothing,
+            or with an empty user, for an identifier that belongs to no user (a channel, a chat, an id no account
+            has, or a peer this account cannot see), in which case ``None`` is returned for a single identifier
+            and the list simply leaves that identifier out. Use :meth:`~pyrogram.Client.get_user` to be told
+            which one is missing. A deleted account is still a user, and comes back with ``is_deleted`` set.
 
         Example:
             .. code-block:: python
