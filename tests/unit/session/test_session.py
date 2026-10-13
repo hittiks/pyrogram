@@ -19,19 +19,21 @@
 from __future__ import annotations as _annotations
 
 import asyncio
-from concurrent.futures import Executor
 from hashlib import sha1, sha256
 from io import BytesIO
 from os import urandom
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 import pytest
 
 import pyrogram
 from pyrogram import raw
 from pyrogram.crypto import aes, mtproto
-from pyrogram.raw.core import FutureSalt, FutureSalts, Long, Message, TLObject
+from pyrogram.raw.core import FutureSalt, FutureSalts, Long, Message, MsgContainer, TLObject
 from pyrogram.session.session import Result, Session, SessionState
+
+if TYPE_CHECKING:
+    from concurrent.futures import Executor
 
 _DC_ID: Final[int] = 2
 _PORT: Final[int] = 443
@@ -90,9 +92,14 @@ class StubConnection:
         self.closed.set()
 
 
-def _started_session() -> Session:
+def _session() -> Session:
     client = pyrogram.Client("test", api_id=1, api_hash="0" * 32, in_memory=True)
-    session = Session(client, _DC_ID, "127.0.0.1", _PORT, _AUTH_KEY, test_mode=True)
+
+    return Session(client, _DC_ID, "127.0.0.1", _PORT, _AUTH_KEY, test_mode=True)
+
+
+def _started_session() -> Session:
+    session = _session()
 
     session.connection = StubConnection()
     session._state = SessionState.STARTED
@@ -272,7 +279,7 @@ async def test_stop_waits_for_the_packet_it_is_still_handling() -> None:
         handled = True
 
     session.handle_packet = handle_packet
-    session.recv_task = session.client.loop.create_task(session.recv_worker())
+    session.recv_task = asyncio.create_task(session.recv_worker())
 
     await asyncio.sleep(0)
 
@@ -301,7 +308,7 @@ async def test_stop_cancels_a_packet_that_will_not_finish(
         await asyncio.Event().wait()
 
     session.handle_packet = handle_packet
-    session.recv_task = session.client.loop.create_task(session.recv_worker())
+    session.recv_task = asyncio.create_task(session.recv_worker())
 
     await asyncio.sleep(0)
 
@@ -340,7 +347,7 @@ async def test_a_restart_queued_before_stop_does_not_reconnect() -> None:
 
     # The task is only scheduled here: it runs once the loop is yielded to, which is
     #  after the stop below, and that is the order the client shuts down in.
-    restarting = session.client.loop.create_task(session.restart())
+    restarting = asyncio.create_task(session.restart())
 
     await session.stop()
     await restarting
@@ -363,7 +370,7 @@ async def test_a_restart_already_starting_is_stopped_again() -> None:
         session.is_started.set()
 
     session.start = start
-    restarting = session.client.loop.create_task(session.restart())
+    restarting = asyncio.create_task(session.restart())
 
     await starting.wait()
     await session.stop()
@@ -373,6 +380,113 @@ async def test_a_restart_already_starting_is_stopped_again() -> None:
 
     assert session.state is SessionState.STOPPED
     assert not session.is_started.is_set()
+
+
+@pytest.mark.parametrize(
+    "worker",
+    [
+        pytest.param("ping_task", id="ping"),
+        pytest.param("recv_task", id="recv"),
+    ],
+)
+async def test_a_restart_gets_past_a_worker_that_died(worker: str) -> None:
+    session = _started_session()
+
+    async def die() -> None:
+        raise AttributeError("'BadMsgNotification' object has no attribute 'salts'")
+
+    setattr(session, worker, asyncio.create_task(die()))
+    await asyncio.sleep(0)
+
+    started: bool = False
+
+    async def start() -> None:
+        nonlocal started
+
+        started = True
+
+    session.start = start
+
+    # Before: `restart()` raised the worker's `AttributeError` and the session stayed
+    #  `STOPPING`, so every later `invoke` failed after `WAIT_TIMEOUT`.
+    await session.restart()
+
+    assert started
+    assert getattr(session, worker) is None
+
+
+async def test_stop_fails_the_request_still_waiting_for_its_answer() -> None:
+    session = _started_session()
+
+    sending = asyncio.ensure_future(session.send(raw.functions.Ping(ping_id=0)))
+
+    while not session.results:
+        await asyncio.sleep(0)
+
+    await session.stop()
+
+    with pytest.raises(TimeoutError, match="stopped"):
+        await asyncio.wait_for(sending, _NOT_DONE_TIMEOUT)
+
+    assert session.results == {}
+
+
+async def test_a_restart_keeps_the_acks_the_session_still_owes() -> None:
+    session = _started_session()
+
+    # A server message identity is odd, and its ack was never flushed.
+    unacked_msg_id: int = await session.msg_factory.allocate_message_identity() + 1
+    session.pending_acks.add(unacked_msg_id)
+
+    # The half of `restart()` that runs before it reconnects.
+    await session._stop()
+
+    assert session.pending_acks == {unacked_msg_id}
+
+
+async def test_a_rejected_message_does_not_drop_the_rest_of_its_container() -> None:
+    session = _started_session()
+
+    ping_msg_id = await session.msg_factory.allocate_message_identity()
+    session.results[ping_msg_id] = Result()
+
+    # Server identities are odd: 1 modulo 4 for an answer, 3 for anything else. The
+    #  re-sent message keeps its older identity, which is below the one stored first.
+    base_msg_id = await session.msg_factory.allocate_message_identity()
+    resent_msg_id: int = base_msg_id + 3
+    new_session_msg_id: int = base_msg_id + 7
+    pong_msg_id: int = base_msg_id + 9
+    container_msg_id: int = base_msg_id + 13
+
+    new_session_created = raw.types.NewSessionCreated(
+        first_msg_id=ping_msg_id,
+        unique_id=0,
+        server_salt=0,
+    )
+    resent_update = raw.types.UpdatesTooLong()
+    pong = raw.types.Pong(
+        msg_id=ping_msg_id,
+        ping_id=0,
+    )
+    container = MsgContainer(
+        [
+            Message(new_session_created, new_session_msg_id, 2, len(new_session_created)),
+            Message(resent_update, resent_msg_id, 3, len(resent_update)),
+            Message(pong, pong_msg_id, 4, len(pong)),
+        ],
+    )
+
+    await session.handle_packet(
+        _pack_as_server(
+            Message(container, container_msg_id, 4, len(container)),
+            session_id=session.session_id,
+            auth_key=session.auth_key,
+        ),
+    )
+
+    # Was "Restarting session due to - TimeoutError - Request timed out" from `start()`.
+    assert session.results[ping_msg_id].event.is_set()
+    assert session.stored_msg_ids == [new_session_msg_id, pong_msg_id]
 
 
 async def test_a_bad_server_salt_nobody_awaits_still_updates_the_salt() -> None:
@@ -462,3 +576,32 @@ async def test_future_salts_are_asked_for_before_the_current_salt_expires() -> N
 
     assert len(requests) == 2
     assert session.salt_valid_until > session.client.server_time
+
+
+@pytest.mark.parametrize(
+    "state",
+    [
+        pytest.param(SessionState.STOPPED, id="never-started"),
+        pytest.param(SessionState.STARTING, id="left-starting-by-a-failed-start"),
+    ],
+)
+async def test_invoke_on_a_session_that_is_not_running_raises(
+    state: SessionState,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Short enough to keep the suite quick, and `invoke()` waits it out in full
+    #  before it gives up on a session that is not running.
+    monkeypatch.setattr(Session, "WAIT_TIMEOUT", 0.05)
+
+    session = _session()
+    session._state = state
+
+    with pytest.raises(TimeoutError) as raised:
+        await session.invoke(raw.functions.help.GetConfig())
+
+    message = str(raised.value)
+
+    assert 'invoke "help.GetConfig"' in message
+
+    # `Session.__str__` carries the state, so this pins the message on both parameters.
+    assert str(session) in message

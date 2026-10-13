@@ -19,7 +19,7 @@
 from __future__ import annotations as _annotations
 
 import logging
-from collections.abc import Iterable
+from typing import TYPE_CHECKING
 
 import pyrogram
 from pyrogram import raw
@@ -31,6 +31,9 @@ from pyrogram.errors import (
 )
 from pyrogram.storage import UpdateState
 from pyrogram.utils import ZERO_CHANNEL_ID
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 log = logging.getLogger(__name__)
 
@@ -68,6 +71,10 @@ class RecoverGaps:
             local_qts = local_state.qts
             local_date = local_state.date
             local_seq = local_state.seq
+
+            # Kurigram does not support recovering gaps for secret chats, so we skip them for now.
+            if local_pts is None:
+                continue
 
             state_deleted = False
 
@@ -136,19 +143,23 @@ class RecoverGaps:
                 chats = {i.id: i for i in diff.chats}
 
                 for message in diff.new_messages:
-                    self.dispatcher.updates_queue.put_nowait(
-                        (
-                            raw.types.UpdateNewMessage(
-                                message=message, pts=local_pts, pts_count=-1
-                            ),
-                            users,
-                            chats,
-                        )
+                    self.dispatcher.enqueue(
+                        raw.types.UpdateNewMessage(
+                            message=message,
+                            pts=local_pts,
+                            pts_count=-1,
+                        ),
+                        users=users,
+                        chats=chats,
                     )
                     message_updates_counter += 1
 
                 for update in diff.other_updates:
-                    self.dispatcher.updates_queue.put_nowait((update, users, chats))
+                    self.dispatcher.enqueue(
+                        update,
+                        users=users,
+                        chats=chats,
+                    )
                     other_updates_counter += 1
 
                 if isinstance(diff, raw.types.updates.Difference):

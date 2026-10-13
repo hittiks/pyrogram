@@ -18,14 +18,16 @@
 
 from __future__ import annotations as _annotations
 
-import asyncio
 import logging
 import os
 from struct import pack, unpack
+from typing import TYPE_CHECKING
 
-from pyrogram.connection.proxy import Proxy
 from pyrogram.connection.transport.tcp.tcp import TCP
 from pyrogram.crypto import aes
+
+if TYPE_CHECKING:
+    from pyrogram.connection.proxy import Proxy
 
 log = logging.getLogger(__name__)
 
@@ -38,10 +40,9 @@ class TCPIntermediateO(TCP):
         ipv6: bool,
         proxy: Proxy | None = None,
         crypto_executor_workers: int = 1,
-        loop: asyncio.AbstractEventLoop | None = None,
         dc_id: int | None = None,
     ) -> None:
-        super().__init__(ipv6, proxy, crypto_executor_workers, loop, dc_id=dc_id)
+        super().__init__(ipv6, proxy, crypto_executor_workers, dc_id=dc_id)
 
         self.encrypt = None
         self.decrypt = None
@@ -71,12 +72,15 @@ class TCPIntermediateO(TCP):
         await super().send(nonce, wait_for_marker=False)
         self.marker_event.set()
 
-    async def send(self, data: bytes, *args) -> None:
+    async def send(self, data: bytes, wait_for_marker: bool = True) -> None:
         if self.encrypt is None:
             msg = "`send()` requires `connect()` to have run first"
             raise RuntimeError(msg)
 
-        await super().send(aes.ctr256_encrypt(pack("<i", len(data)) + data, *self.encrypt))
+        await super().send(
+            aes.ctr256_encrypt(pack("<i", len(data)) + data, *self.encrypt),
+            wait_for_marker,
+        )
 
     async def recv(self, length: int = 0) -> bytes | None:
         if self.decrypt is None:

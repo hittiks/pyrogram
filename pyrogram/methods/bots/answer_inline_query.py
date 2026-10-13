@@ -18,11 +18,13 @@
 
 from __future__ import annotations as _annotations
 
-from collections.abc import Iterable
+from typing import TYPE_CHECKING
 
 import pyrogram
-from pyrogram import raw
-from pyrogram import types
+from pyrogram import raw, types
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 
 class AnswerInlineQuery:
@@ -103,8 +105,8 @@ class AnswerInlineQuery:
                 query_id=int(inline_query_id),
                 results=[await r.write(self) for r in results],
                 cache_time=cache_time,
-                gallery=is_gallery or None,
-                private=is_personal or None,
+                gallery=is_gallery,
+                private=is_personal,
                 next_offset=next_offset or None,
                 switch_pm=raw.types.InlineBotSwitchPM(
                     text=switch_pm_text, start_param=switch_pm_parameter

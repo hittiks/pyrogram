@@ -18,46 +18,33 @@
 
 from __future__ import annotations as _annotations
 
-import logging
-
 import pyrogram
 from pyrogram import raw
-from pyrogram import types
-
-log = logging.getLogger(__name__)
 
 
-class GetStickers:
-    async def get_stickers(self: pyrogram.Client, short_name: str) -> list[types.Sticker]:
-        """Get all stickers from set by short name.
+class HideGeneralForumTopic:
+    async def hide_general_forum_topic(self: pyrogram.Client, chat_id: int | str) -> bool:
+        """Use this method to hide the 'General' topic in a forum supergroup chat.
+        The bot must be an administrator in the chat for this to work and must have the `can_manage_topics` administrator rights.
 
         .. include:: /_includes/usable-by/users-bots.rst
 
         Parameters:
-            short_name (``str``):
-                Short name of the sticker set, serves as the unique identifier for the sticker set.
+            chat_id (``int`` | ``str``):
+                Unique identifier (int) or username (str) of the target chat.
 
         Returns:
-            List of :obj:`~pyrogram.types.Sticker`: A list of stickers is returned.
+            ``bool``: On success, True is returned.
 
         Example:
             .. code-block:: python
 
-                # Get all stickers by short name
-                await app.get_stickers("short_name")
-
-        Raises:
-            ValueError: In case of invalid arguments.
+                await app.hide_general_forum_topic(chat_id)
         """
-        sticker_set = await self.invoke(
-            raw.functions.messages.GetStickerSet(
-                stickerset=raw.types.InputStickerSetShortName(short_name=short_name), hash=0
+        r = await self.invoke(
+            raw.functions.messages.EditForumTopic(
+                peer=await self.resolve_peer(chat_id), topic_id=1, hidden=True
             )
         )
 
-        return types.List(
-            [
-                await types.Sticker._parse(self, doc, {type(a): a for a in doc.attributes})
-                for doc in sticker_set.documents
-            ]
-        )
+        return bool(r)

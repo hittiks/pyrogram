@@ -18,7 +18,11 @@
 
 from __future__ import annotations as _annotations
 
-import pyrogram
+import asyncio
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import pyrogram
 
 
 class Stop:
@@ -71,6 +75,6 @@ class Stop:
         if block:
             await do_it()
         else:
-            self.loop.create_task(do_it())
+            asyncio.create_task(do_it())
 
         return self

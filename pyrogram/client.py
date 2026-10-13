@@ -28,7 +28,6 @@ import re
 import shutil
 import sys
 import time
-from collections import OrderedDict
 from concurrent.futures.thread import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from hashlib import sha256
@@ -36,13 +35,10 @@ from importlib import import_module
 from io import BytesIO
 from mimetypes import MimeTypes
 from pathlib import Path
-from typing import Any
-from collections.abc import AsyncGenerator, Callable, Sequence
+from typing import TYPE_CHECKING, Any
 
 import pyrogram
 from pyrogram import __license__, __version__, enums, raw, utils
-from pyrogram._typing import PathType
-from pyrogram.connection import Proxy
 from pyrogram.connection.proxy import ProxyDict, normalize_proxy
 from pyrogram.crypto import aes
 from pyrogram.errors import (
@@ -72,6 +68,12 @@ from .file_id import FileId, FileType, ThumbnailSource
 from .parser import Parser
 from .session.internals import MsgId
 
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator, Callable, Sequence
+
+    from pyrogram._typing import PathType
+    from pyrogram.connection import Proxy
+
 log = logging.getLogger(__name__)
 
 
@@ -88,7 +90,7 @@ def _plugin_handlers(target: Any) -> Sequence[tuple[Handler, int]] | None:
 
 
 class Client(Methods):
-    """Pyrogram Client, the main means for interacting with Telegram.
+    """Kurigram Client, the main means for interacting with Telegram.
 
     Parameters:
         name (``str``):
@@ -104,7 +106,7 @@ class Client(Methods):
 
         app_version (``str``, *optional*):
             Application version.
-            Defaults to "Pyrogram x.y.z".
+            Defaults to "Kurigram x.y.z".
 
         device_model (``str``, *optional*):
             Device model.
@@ -148,6 +150,7 @@ class Client(Methods):
             never adds the TLS record layer. A secret longer than 16 bytes - dd-prefixed or
             ee-prefixed - asks for random padding, and the transport that sends it is picked
             from the secret, so *proxy* is the only argument either scheme needs.
+            Assigning ``client.proxy`` later accepts the same forms; the next connection uses it.
 
         test_mode (``bool``, *optional*):
             Enable or disable login to the test servers.
@@ -187,7 +190,7 @@ class Client(Methods):
 
         workdir (``str`` | ``os.PathLike``, *optional*):
             Define a custom working directory.
-            The working directory is the location in the filesystem where Pyrogram will store the session files.
+            The working directory is the location in the filesystem where Kurigram will store the session files.
             Defaults to the parent directory of the main script.
 
         plugins (``dict``, *optional*):
@@ -239,6 +242,10 @@ class Client(Methods):
             Set the maximum size of the topic cache.
             Defaults to 1000.
 
+        max_sticker_set_name_cache_size (``int``, *optional*):
+            Set the maximum size of the sticker set name cache.
+            Defaults to 250.
+
         storage_engine (:obj:`~pyrogram.storage.Storage`, *optional*):
             Pass an instance of your own implementation of session storage engine.
             Useful when you want to store your session in databases like Mongo, Redis, etc.
@@ -266,16 +273,13 @@ class Client(Methods):
             Pass True to automatically fetch names of sticker sets.
             Defaults to True.
 
-        loop (:py:class:`asyncio.AbstractEventLoop`, *optional*):
-            Event loop.
-
         init_connection_params (``dict`` | :obj:`~pyrogram.raw.base.JSONValue`, *optional*):
             Additional initConnection parameters.
             For now, only the tz_offset field is supported, for specifying timezone offset in seconds.
             A dict is converted on connect; an already built JSONValue is sent as it is.
     """
 
-    APP_VERSION = f"Pyrogram {__version__}"
+    APP_VERSION = f"Kurigram {__version__}"
     DEVICE_MODEL = f"{platform.python_implementation()} {platform.python_version()}"
     SYSTEM_VERSION = f"{platform.system()} {platform.release()}"
 
@@ -307,6 +311,7 @@ class Client(Methods):
     MAX_CONCURRENT_TRANSMISSIONS = 1
     MAX_MESSAGE_CACHE_SIZE = 1000
     MAX_TOPIC_CACHE_SIZE = 1000
+    MAX_STICKER_SET_NAME_CACHE_SIZE = 250
 
     mimetypes = MimeTypes()
     with (Path(__file__).parent / "mime_types.txt").open(encoding="utf-8") as mime_types:
@@ -344,6 +349,7 @@ class Client(Methods):
         max_concurrent_transmissions: int = MAX_CONCURRENT_TRANSMISSIONS,
         max_message_cache_size: int = MAX_MESSAGE_CACHE_SIZE,
         max_topic_cache_size: int = MAX_TOPIC_CACHE_SIZE,
+        max_sticker_set_name_cache_size: int = MAX_STICKER_SET_NAME_CACHE_SIZE,
         storage_engine: Storage | None = None,
         client_platform: enums.ClientPlatform = enums.ClientPlatform.OTHER,
         link_preview_options: LinkPreviewOptions | None = None,
@@ -354,7 +360,6 @@ class Client(Methods):
         init_connection_params: dict | raw.base.JSONValue | None = None,
         connection_factory: type[Connection] = Connection,
         protocol_factory: type[TCP] = TCPAbridged,
-        loop: asyncio.AbstractEventLoop | None = None,
     ):
         super().__init__()
 
@@ -368,7 +373,7 @@ class Client(Methods):
         self.lang_code = lang_code.lower()
         self.system_lang_code = system_lang_code.lower()
         self.ipv6 = ipv6
-        self.proxy = normalize_proxy(proxy)
+        self.proxy = proxy
         self.test_mode = test_mode
         self.bot_token = bot_token
         self.session_string = session_string
@@ -388,6 +393,7 @@ class Client(Methods):
         self.max_concurrent_transmissions = max_concurrent_transmissions
         self.max_message_cache_size = max_message_cache_size
         self.max_topic_cache_size = max_topic_cache_size
+        self.max_sticker_set_name_cache_size = max_sticker_set_name_cache_size
         self.client_platform = client_platform
         self.link_preview_options = link_preview_options
         self.fetch_replies = fetch_replies
@@ -445,8 +451,9 @@ class Client(Methods):
 
         self.message_split_ranges: list[raw.base.MessageRange] | None = None
 
-        self.message_cache = Cache(self.max_message_cache_size)
-        self.topic_cache = Cache(self.max_topic_cache_size)
+        self.message_cache = utils.Cache(self.max_message_cache_size)
+        self.topic_cache = utils.Cache(self.max_topic_cache_size)
+        self.sticker_set_name_cache = utils.Cache(self.max_sticker_set_name_cache_size)
 
         # Sometimes, for some reason, the server will stop sending updates and will only respond to pings.
         # This watchdog will invoke updates.GetState in order to wake up the server and enable it sending updates again
@@ -455,22 +462,13 @@ class Client(Methods):
         self.updates_watchdog_event = asyncio.Event()
         self.last_update_time = datetime.now()
 
-        if isinstance(loop, asyncio.AbstractEventLoop):
-            self.loop = loop
-        else:
-            self.loop = None
+        # `start()` records the loop it is running on, and `pyrogram/sync.py` is the one
+        #  reader: a call arriving from a thread with no loop of its own reaches this one
+        #  through `run_coroutine_threadsafe`, which takes the loop as an argument.
+        self._loop: asyncio.AbstractEventLoop | None = None
 
-        self.__config: raw.types.Config = None
-
-    @property
-    def loop(self) -> asyncio.AbstractEventLoop:
-        if not self._loop:
-            self._loop = utils.get_event_loop()
-        return self._loop
-
-    @loop.setter
-    def loop(self, value: asyncio.AbstractEventLoop):
-        self._loop = value
+        self._app_config: raw.types.help.AppConfig | None = None
+        self.__config: raw.types.Config | None = None
 
     def __enter__(self):
         return self.start()
@@ -492,6 +490,23 @@ class Client(Methods):
             await self.stop()
         except ConnectionError:
             pass
+
+    # An `asyncio` primitive binds to the first loop that awaits it and refuses every other
+    #  one, and each of these is built in `__init__`, where there is no loop yet. A second
+    #  `run()` on one client died with `<asyncio.locks.Event object at 0x...> is bound to a
+    #  different event loop`.
+    #  https://github.com/python/cpython/blob/323c59a5e348347be2ce2b7ea55fcb30bf68b2d3/Lib/asyncio/mixins.py#L19
+    def _rebuild_loop_bound_state(self) -> None:
+        self.sessions_lock = asyncio.Lock()
+
+        self.save_file_semaphore = asyncio.Semaphore(self.max_concurrent_transmissions)
+        self.get_file_semaphore = asyncio.Semaphore(self.max_concurrent_transmissions)
+
+        self.updates_watchdog_event = asyncio.Event()
+
+        self.message_cache.reset_lock()
+        self.topic_cache.reset_lock()
+        self.sticker_set_name_cache.reset_lock()
 
     async def updates_watchdog(self):
         while True:
@@ -516,9 +531,9 @@ class Client(Methods):
         if self.bot_token:
             return await self.sign_in_bot(self.bot_token)
 
-        print(f"Welcome to Pyrogram (version {__version__})")
+        print(f"Welcome to Kurigram (version {__version__})")
         print(
-            f"Pyrogram is free software and comes with ABSOLUTELY NO WARRANTY. Licensed\n"
+            f"Kurigram is free software and comes with ABSOLUTELY NO WARRANTY. Licensed\n"
             f"under the terms of the {__license__}.\n"
         )
 
@@ -526,12 +541,12 @@ class Client(Methods):
             try:
                 if not self.phone_number:
                     while True:
-                        value = await ainput("Enter phone number or bot token: ", loop=self.loop)
+                        value = await ainput("Enter phone number or bot token: ")
 
                         if not value:
                             continue
 
-                        confirm = await ainput(f'Is "{value}" correct? (y/N): ', loop=self.loop)
+                        confirm = await ainput(f'Is "{value}" correct? (y/N): ')
 
                         if confirm.lower() == "y":
                             break
@@ -556,12 +571,12 @@ class Client(Methods):
             while True:
                 try:
                     while True:
-                        email = await ainput("Enter email: ", loop=self.loop)
+                        email = await ainput("Enter email: ")
 
                         if not email:
                             continue
 
-                        confirm = await ainput(f'Is "{email}" correct? (y/N): ', loop=self.loop)
+                        confirm = await ainput(f'Is "{email}" correct? (y/N): ')
 
                         if confirm.lower() == "y":
                             break
@@ -576,7 +591,7 @@ class Client(Methods):
                         )
                     )
 
-                    email_code = await ainput("Enter confirmation code: ", loop=self.loop)
+                    email_code = await ainput("Enter confirmation code: ")
 
                     email_sent_code = await self.invoke(
                         raw.functions.account.VerifyEmail(
@@ -595,7 +610,7 @@ class Client(Methods):
                             # TODO: raw.functions.auth.CheckPaidAuth
                             raise Unauthorized(
                                 f"You need to pay {email_sent_code.sent_code.amount}{email_sent_code.sent_code.currency} or purchase premium to continue authorization "
-                                "process, which is currently not supported by Pyrogram."
+                                "process, which is currently not supported by Kurigram."
                             )
                 except BadRequest as e:
                     print(e.MESSAGE)
@@ -617,7 +632,7 @@ class Client(Methods):
 
         while True:
             if not self.phone_code:
-                self.phone_code = await ainput("Enter confirmation code: ", loop=self.loop)
+                self.phone_code = await ainput("Enter confirmation code: ")
 
             try:
                 signed_in = await self.sign_in(
@@ -636,23 +651,18 @@ class Client(Methods):
                         self.password = await ainput(
                             "Enter 2FA password (empty to recover): ",
                             hide=self.hide_password,
-                            loop=self.loop,
                         )
 
                     try:
                         if not self.password:
-                            confirm = await ainput(
-                                "Confirm password recovery (y/N): ", loop=self.loop
-                            )
+                            confirm = await ainput("Confirm password recovery (y/N): ")
 
                             if confirm.lower() == "y":
                                 email_pattern = await self.send_recovery_code()
                                 print(f"The recovery code has been sent to {email_pattern}")
 
                                 while True:
-                                    recovery_code = await ainput(
-                                        "Enter recovery code: ", loop=self.loop
-                                    )
+                                    recovery_code = await ainput("Enter recovery code: ")
 
                                     try:
                                         return await self.recover_password(recovery_code)
@@ -675,8 +685,8 @@ class Client(Methods):
             return signed_in
 
         while True:
-            first_name = await ainput("Enter first name: ", loop=self.loop)
-            last_name = await ainput("Enter last name (empty to skip): ", loop=self.loop)
+            first_name = await ainput("Enter first name: ")
+            last_name = await ainput("Enter last name (empty to skip): ")
 
             try:
                 signed_up = await self.sign_up(
@@ -712,8 +722,8 @@ class Client(Methods):
             try:
                 print(
                     "\x1b[2J\n"
-                    f"Welcome to Pyrogram (version {__version__})\n"
-                    "Pyrogram is free software and comes with ABSOLUTELY NO WARRANTY. Licensed\n"
+                    f"Welcome to Kurigram (version {__version__})\n"
+                    "Kurigram is free software and comes with ABSOLUTELY NO WARRANTY. Licensed\n"
                     f"under the terms of the {__license__}.\n"
                     "Scan the QR code below to login\n"
                     "Settings -> Privacy and Security -> Active Sessions -> Scan QR Code.",
@@ -746,23 +756,18 @@ class Client(Methods):
                         self.password = await ainput(
                             "Enter 2FA password (empty to recover): ",
                             hide=self.hide_password,
-                            loop=self.loop,
                         )
 
                     try:
                         if not self.password:
-                            confirm = await ainput(
-                                "Confirm password recovery (y/N): ", loop=self.loop
-                            )
+                            confirm = await ainput("Confirm password recovery (y/N): ")
 
                             if confirm.lower() == "y":
                                 email_pattern = await self.send_recovery_code()
                                 print(f"The recovery code has been sent to {email_pattern}")
 
                                 while True:
-                                    recovery_code = await ainput(
-                                        "Enter recovery code: ", loop=self.loop
-                                    )
+                                    recovery_code = await ainput("Enter recovery code: ")
 
                                     try:
                                         return await self.recover_password(recovery_code)
@@ -780,6 +785,8 @@ class Client(Methods):
                         self.password = None
             else:
                 break
+
+        raise ValueError("QR login finished without a signed-in user")
 
     def set_parse_mode(self, parse_mode: enums.ParseMode | None):
         """Set the parse mode to be used globally by the client.
@@ -957,7 +964,11 @@ class Client(Methods):
                                 users.update({u.id: u for u in diff.users})
                                 chats.update({c.id: c for c in diff.chats})
 
-                self.dispatcher.updates_queue.put_nowait((update, users, chats))
+                self.dispatcher.enqueue(
+                    update,
+                    users=users,
+                    chats=chats,
+                )
 
             await self.storage.set_update_state(
                 UpdateState(0, None, None, updates.date, updates.seq)
@@ -977,20 +988,28 @@ class Client(Methods):
             chats = {c.id: c for c in diff.chats}
 
             for message in diff.new_messages:
-                self.dispatcher.updates_queue.put_nowait(
-                    (
-                        raw.types.UpdateNewMessage(
-                            message=message, pts=updates.pts, pts_count=updates.pts_count
-                        ),
-                        users,
-                        chats,
-                    )
+                self.dispatcher.enqueue(
+                    raw.types.UpdateNewMessage(
+                        message=message,
+                        pts=updates.pts,
+                        pts_count=updates.pts_count,
+                    ),
+                    users=users,
+                    chats=chats,
                 )
 
             for update in diff.other_updates:
-                self.dispatcher.updates_queue.put_nowait((update, users, chats))
+                self.dispatcher.enqueue(
+                    update,
+                    users=users,
+                    chats=chats,
+                )
         elif isinstance(updates, raw.types.UpdateShort):
-            self.dispatcher.updates_queue.put_nowait((updates.update, {}, {}))
+            self.dispatcher.enqueue(
+                updates.update,
+                users={},
+                chats={},
+            )
         elif isinstance(updates, raw.types.UpdatesTooLong):
             log.info(updates)
 
@@ -1050,17 +1069,13 @@ class Client(Methods):
                 else:
                     while True:
                         try:
-                            value = int(
-                                await ainput(
-                                    "Enter the api_id part of the API key: ", loop=self.loop
-                                )
-                            )
+                            value = int(await ainput("Enter the api_id part of the API key: "))
 
                             if value <= 0:
                                 print("Invalid value")
                                 continue
 
-                            confirm = await ainput(f'Is "{value}" correct? (y/N): ', loop=self.loop)
+                            confirm = await ainput(f'Is "{value}" correct? (y/N): ')
 
                             if confirm.lower() == "y":
                                 await self.storage.api_id(value)
@@ -1379,7 +1394,8 @@ class Client(Methods):
                             if inspect.iscoroutinefunction(progress):
                                 await func()
                             else:
-                                await self.loop.run_in_executor(self.executor, func)
+                                loop = asyncio.get_running_loop()
+                                await loop.run_in_executor(self.executor, func)
 
                         if len(chunk) < chunk_size or current >= total:
                             break
@@ -1417,7 +1433,7 @@ class Client(Methods):
                             chunk = r2.bytes
 
                             # https://core.telegram.org/cdn#decrypting-files
-                            decrypted_chunk = await self.loop.run_in_executor(
+                            decrypted_chunk = await asyncio.get_running_loop().run_in_executor(
                                 self.executor,
                                 aes.ctr256_decrypt,
                                 chunk,
@@ -1445,7 +1461,7 @@ class Client(Methods):
                                         "h.hash == sha256(cdn_chunk).digest()",
                                     )
 
-                            await self.loop.run_in_executor(
+                            await asyncio.get_running_loop().run_in_executor(
                                 self.executor,
                                 _check_all_hashes,
                                 hashes,
@@ -1470,7 +1486,8 @@ class Client(Methods):
                                 if inspect.iscoroutinefunction(progress):
                                     await func()
                                 else:
-                                    await self.loop.run_in_executor(self.executor, func)
+                                    loop = asyncio.get_running_loop()
+                                    await loop.run_in_executor(self.executor, func)
 
                             if len(chunk) < chunk_size or current >= total:
                                 break
@@ -1543,6 +1560,10 @@ class Client(Methods):
         is_current_dc = await self.storage.dc_id() == dc_id
 
         if not temporary and is_current_dc and not is_media:
+            # Only reachable on a connected client, where `session` is set.
+            if self.session is None:
+                raise ConnectionError("Client is not connected")
+
             return self.session
 
         sessions = self.media_sessions if is_media else self.sessions
@@ -1690,6 +1711,14 @@ class Client(Methods):
             log.info("Session DC%s address is already %s:%s", dc_id, server_address, port)
 
     @property
+    def proxy(self) -> Proxy | None:
+        return self._proxy
+
+    @proxy.setter
+    def proxy(self, proxy: str | ProxyDict | Proxy | None) -> None:
+        self._proxy = normalize_proxy(proxy)
+
+    @property
     def server_time(self) -> float:
         return time.time() + self._server_time_offset
 
@@ -1713,41 +1742,3 @@ class Client(Methods):
 
     def guess_extension(self, mime_type: str) -> str | None:
         return self.mimetypes.guess_extension(mime_type)
-
-
-class Cache:
-    def __init__(self, capacity: int):
-        if capacity <= 0:
-            raise ValueError("capacity must be greater than 0")
-
-        self.capacity = capacity
-        self._cache: OrderedDict[Any, Any] = OrderedDict()
-        self._lock = asyncio.Lock()
-
-    def __len__(self) -> int:
-        return len(self._cache)
-
-    def __contains__(self, key: Any) -> bool:
-        return key in self._cache
-
-    def __bool__(self) -> bool:
-        return bool(self._cache)
-
-    def __repr__(self) -> str:
-        return f"{type(self).__name__}(capacity={self.capacity}, size={len(self)})"
-
-    async def get(self, key: Any, default: Any = None) -> Any:
-        async with self._lock:
-            if key not in self._cache:
-                return default
-
-            self._cache.move_to_end(key)
-            return self._cache[key]
-
-    async def set(self, key: Any, value: Any) -> None:
-        async with self._lock:
-            self._cache[key] = value
-            self._cache.move_to_end(key)
-
-            if len(self._cache) > self.capacity:
-                self._cache.popitem(last=False)

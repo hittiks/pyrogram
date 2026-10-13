@@ -23,10 +23,10 @@ from typing import Final
 import pytest
 
 from pyrogram import raw
-from pyrogram.client import Cache
 from pyrogram.errors import MessageIdInvalid
 from pyrogram.methods.messages.get_message import GetMessage
 from pyrogram.methods.messages.get_messages import GetMessages
+from pyrogram.utils import Cache
 
 _CHAT_ID: Final[int] = 7
 _MESSAGE_ID: Final[int] = 99

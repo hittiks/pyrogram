@@ -20,13 +20,16 @@ from __future__ import annotations as _annotations
 
 import os
 from pathlib import Path
-from typing import BinaryIO
-from collections.abc import Callable
+from typing import TYPE_CHECKING, BinaryIO
 
 import pyrogram
-from pyrogram import raw, types, utils, StopTransmission
-from pyrogram._typing import PathType
+from pyrogram import StopTransmission, raw, types, utils
 from pyrogram.errors import FilePartMissing
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from pyrogram._typing import PathType
 
 
 class EditStoryMedia:
@@ -81,6 +84,14 @@ class EditStoryMedia:
                 A thumbnail's width and height should not exceed 320 pixels.
                 Thumbnails can't be reused and can be only uploaded as a new file.
 
+            supports_streaming (``bool``, *optional*):
+                Pass True, if the uploaded video is suitable for streaming.
+                Defaults to True.
+
+            file_name (``str``, *optional*):
+                File name of the audio sent.
+                Defaults to file's path basename.
+
             progress (``Callable``, *optional*):
                 Pass a callback function to view the file transmission progress.
                 The function must take *(current, total)* as positional arguments (look at Other Parameters below for a
@@ -124,6 +135,7 @@ class EditStoryMedia:
                             thumb=thumb,
                             attributes=[
                                 raw.types.DocumentAttributeVideo(
+                                    supports_streaming=supports_streaming,
                                     duration=duration,
                                     w=width,
                                     h=height,
@@ -152,7 +164,7 @@ class EditStoryMedia:
                         thumb=thumb,
                         attributes=[
                             raw.types.DocumentAttributeVideo(
-                                supports_streaming=supports_streaming or None,
+                                supports_streaming=supports_streaming,
                                 duration=duration,
                                 w=width,
                                 h=height,
@@ -177,6 +189,10 @@ class EditStoryMedia:
                         )
                     )
                 except FilePartMissing as e:
+                    # The error names the missing part; without it there is nothing to resave.
+                    if e.file_part is None:
+                        raise
+
                     await self.save_file(media, file_id=file.id, file_part=e.file_part)
                 else:
                     for i in r.updates:

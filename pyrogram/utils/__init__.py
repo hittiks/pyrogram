@@ -24,6 +24,7 @@ from .amounts import (
     get_premium_duration_month_count,
     to_nano,
 )
+from .cache import Cache
 from .console import ainput
 from .crypto import btoi, compute_password_check, compute_password_hash, itob, sha256, xor
 from .datetimes import datetime_to_timestamp, max_datetime, timestamp_to_datetime, zero_datetime
@@ -36,14 +37,17 @@ from .file_ids import (
 from .gifts import get_input_stargift
 from .inline import pack_inline_message_id, unpack_inline_message_id
 from .json_values import jsonvalue_to_obj, obj_to_jsonvalue
-from .loop import get_event_loop, get_running_loop
 from .messages import get_reply_to, parse_deleted_messages, parse_messages
+from .parsing import require_parsed
 from .peers import (
     MAX_CHANNEL_ID,
     MAX_CHAT_ID,
     MAX_MONOFORUM_CHANNEL_ID,
     MAX_USER_ID,
     MIN_MONOFORUM_CHANNEL_ID,
+    PEERS_WITH_A_CHANNEL_ID,
+    PEERS_WITH_A_CHAT_ID,
+    PEERS_WITH_A_USER_ID,
     ZERO_CHANNEL_ID,
     ZERO_SECRET_CHAT_ID,
     get_channel_id,
@@ -54,11 +58,15 @@ from .peers import (
 from .text import get_first_url, parse_text_entities, parse_text_with_entities, split_text
 
 __all__ = [
+    "Cache",
     "MAX_CHANNEL_ID",
     "MAX_CHAT_ID",
     "MAX_MONOFORUM_CHANNEL_ID",
     "MAX_USER_ID",
     "MIN_MONOFORUM_CHANNEL_ID",
+    "PEERS_WITH_A_CHANNEL_ID",
+    "PEERS_WITH_A_CHAT_ID",
+    "PEERS_WITH_A_USER_ID",
     "ZERO_CHANNEL_ID",
     "ZERO_SECRET_CHAT_ID",
     "ainput",
@@ -70,7 +78,6 @@ __all__ = [
     "from_inline_bytes",
     "from_nano",
     "get_channel_id",
-    "get_event_loop",
     "get_file_name",
     "get_first_url",
     "get_input_media_from_file_id",
@@ -81,7 +88,6 @@ __all__ = [
     "get_premium_duration_month_count",
     "get_raw_peer_id",
     "get_reply_to",
-    "get_running_loop",
     "itob",
     "jsonvalue_to_obj",
     "max_datetime",
@@ -91,6 +97,7 @@ __all__ = [
     "parse_messages",
     "parse_text_entities",
     "parse_text_with_entities",
+    "require_parsed",
     "sha256",
     "split_text",
     "timestamp_to_datetime",

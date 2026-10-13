@@ -24,13 +24,16 @@ import time
 from hashlib import sha1
 from io import BytesIO
 from os import urandom
+from typing import TYPE_CHECKING
 
 import pyrogram
 from pyrogram import raw
-from pyrogram.connection import Connection
-from pyrogram.crypto import aes, rsa, prime
+from pyrogram.crypto import aes, prime, rsa
 from pyrogram.errors import SecurityCheckMismatch
-from pyrogram.raw.core import TLObject, Long, Int
+from pyrogram.raw.core import Int, Long, TLObject
+
+if TYPE_CHECKING:
+    from pyrogram.connection import Connection
 
 log = logging.getLogger(__name__)
 
@@ -50,7 +53,6 @@ class Auth:
         self.proxy = client.proxy
         self.connection_factory = client.connection_factory
         self.protocol_factory = client.protocol_factory
-        self.loop = client.loop
 
         self.connection: Connection | None = None
 
@@ -93,7 +95,6 @@ class Auth:
                 proxy=self.proxy,
                 media=False,
                 protocol_factory=self.protocol_factory,
-                loop=self.loop,
             )
 
             try:

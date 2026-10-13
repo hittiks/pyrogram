@@ -26,13 +26,15 @@ import logging
 import math
 import os
 from hashlib import md5
-from typing import BinaryIO, overload
-from collections.abc import Callable
+from typing import TYPE_CHECKING, BinaryIO, overload
 
 import pyrogram
-from pyrogram import StopTransmission
-from pyrogram import raw
-from pyrogram._typing import PathType
+from pyrogram import StopTransmission, raw
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from pyrogram._typing import PathType
 
 log = logging.getLogger(__name__)
 
@@ -194,7 +196,7 @@ class SaveFile:
 
             session = await self.get_session(dc_id, is_media=True)
 
-            workers = [self.loop.create_task(worker(session)) for _ in range(workers_count)]
+            workers = [asyncio.create_task(worker(session)) for _ in range(workers_count)]
             queue = asyncio.Queue(1)
 
             try:
@@ -241,7 +243,7 @@ class SaveFile:
                         if inspect.iscoroutinefunction(progress):
                             await func()
                         else:
-                            await self.loop.run_in_executor(self.executor, func)
+                            await asyncio.get_running_loop().run_in_executor(self.executor, func)
             except StopTransmission:
                 raise
             except Exception as e:

@@ -19,13 +19,15 @@
 from __future__ import annotations as _annotations
 
 import asyncio
-from typing import Final, overload
-from collections.abc import Iterable
+from typing import TYPE_CHECKING, Final, overload
 
 import pyrogram
 from pyrogram import raw
 from pyrogram import types
 from pyrogram import utils
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 # `inputPeerSelf` carries no identifier, so the account's own chat cannot be keyed the way every
 #  other one is. The answer names it instead, through the `self` flag on `user`. `0` is free as a

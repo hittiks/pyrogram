@@ -18,9 +18,13 @@
 
 from __future__ import annotations as _annotations
 
-import pyrogram
-from pyrogram import types
+from typing import TYPE_CHECKING
+
 from pyrogram.errors import PeerIdInvalid
+
+if TYPE_CHECKING:
+    import pyrogram
+    from pyrogram import types
 
 
 class GetUser:

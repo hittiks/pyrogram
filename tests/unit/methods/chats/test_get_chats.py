@@ -18,8 +18,11 @@
 
 from __future__ import annotations as _annotations
 
+from typing import cast
+
 import pytest
 
+import pyrogram
 from pyrogram import raw
 from pyrogram.methods.chats.get_chats import GetChats
 
@@ -42,7 +45,7 @@ class Answerer(GetChats):
     async def invoke(
         self,
         query: raw.core.TLObject,
-    ) -> raw.types.messages.Chats | list[raw.base.User]:
+    ) -> raw.types.messages.Chats | list[raw.base.Chat | raw.base.User]:
         self.queries.append(query)
 
         if isinstance(query, raw.functions.channels.GetChannels):
@@ -54,6 +57,16 @@ class Answerer(GetChats):
             )
 
         return _only(self.raw_chats, wanted=(raw.types.User, raw.types.UserEmpty))
+
+
+def answerer(
+    peers: dict[int | str, raw.base.InputPeer],
+    *,
+    raw_chats: list[raw.base.Chat | raw.base.User],
+) -> pyrogram.Client:
+    # `Answerer` subclasses only the mixin, and the `get_chats` overloads pin
+    #  `self: pyrogram.Client`.
+    return cast("pyrogram.Client", Answerer(peers, raw_chats=raw_chats))
 
 
 def _only(
@@ -117,14 +130,14 @@ def a_user(user_id: int, *, is_self: bool | None = None) -> raw.types.User:
 async def test_a_single_identifier_that_names_no_chat_gives_nothing_back() -> None:
     peers = {-42: raw.types.InputPeerChat(chat_id=42)}
 
-    assert await Answerer(peers, []).get_chats(-42) is None
+    assert await answerer(peers, raw_chats=[]).get_chats(-42) is None
 
 
 @pytest.mark.asyncio
 async def test_a_single_identifier_gives_its_chat_back() -> None:
     peers = {-42: raw.types.InputPeerChat(chat_id=42)}
 
-    chat = await Answerer(peers, [a_group(42)]).get_chats(-42)
+    chat = await answerer(peers, raw_chats=[a_group(42)]).get_chats(-42)
 
     assert chat.id == -42
     assert chat.title == "Group 42"
@@ -141,7 +154,7 @@ async def test_a_list_comes_back_in_the_order_it_was_asked_for() -> None:
         -1000000000099: a_channel_peer(99),
     }
 
-    chats = await Answerer(peers, [a_channel(99), a_user(7), a_group(42)]).get_chats(
+    chats = await answerer(peers, raw_chats=[a_channel(99), a_user(7), a_group(42)]).get_chats(
         [7, -42, -1000000000099]
     )
 
@@ -157,7 +170,9 @@ async def test_a_list_leaves_out_a_chat_this_account_can_no_longer_see() -> None
         -43: raw.types.InputPeerChat(chat_id=43),
     }
 
-    chats = await Answerer(peers, [a_group(42), raw.types.ChatEmpty(id=43)]).get_chats([-42, -43])
+    chats = await answerer(peers, raw_chats=[a_group(42), raw.types.ChatEmpty(id=43)]).get_chats(
+        [-42, -43]
+    )
 
     assert [chat.id for chat in chats] == [-42]
 
@@ -168,7 +183,7 @@ async def test_saved_messages_is_matched_through_the_self_flag() -> None:
     #  account's own chat. Without reading the `self` flag off it, "me" came back missing.
     peers = {"me": raw.types.InputPeerSelf()}
 
-    chat = await Answerer(peers, [a_user(7, is_self=True)]).get_chats("me")
+    chat = await answerer(peers, raw_chats=[a_user(7, is_self=True)]).get_chats("me")
 
     assert chat.id == 7
 
@@ -182,8 +197,8 @@ async def test_one_call_is_made_per_kind_of_peer_however_many_identifiers() -> N
         -43: raw.types.InputPeerChat(chat_id=43),
         -1000000000099: a_channel_peer(99),
     }
-    answerer = Answerer(peers, [])
+    client = Answerer(peers, [])
 
-    await answerer.get_chats(list(peers))
+    await cast("pyrogram.Client", client).get_chats(list(peers))
 
-    assert len(answerer.queries) == 3
+    assert len(client.queries) == 3
