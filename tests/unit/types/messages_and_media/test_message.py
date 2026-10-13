@@ -168,3 +168,39 @@ def test_an_entity_offset_still_indexes_the_text_that_entity_marks() -> None:
     text = Str("😀 bold").init([entity])
 
     assert text[entity.offset : entity.offset + entity.length] == "bold"
+
+
+@pytest.mark.asyncio
+async def test_a_basic_group_message_sent_as_a_channel_names_the_channel() -> None:
+    group_id: int = 5
+    group = raw.types.Chat(
+        id=group_id,
+        title="Group",
+        photo=raw.types.ChatPhotoEmpty(),
+        participants_count=2,
+        date=DATE,
+        version=1,
+    )
+    raw_message = raw.types.Message(
+        id=1,
+        peer_id=raw.types.PeerChat(chat_id=group_id),
+        from_id=raw.types.PeerChannel(channel_id=CHANNEL_ID),
+        date=DATE,
+        message="hi",
+        entities=[],
+        restriction_reason=[],
+    )
+    channel = monoforum_chat()
+    channel.monoforum = False
+
+    parsed = await types.Message._parse(
+        client(),
+        raw_message,
+        users={},
+        chats={group_id: group, CHANNEL_ID: channel},
+    )
+
+    assert (parsed.chat.type, parsed.sender_chat.type) == (
+        enums.ChatType.GROUP,
+        enums.ChatType.CHANNEL,
+    )
