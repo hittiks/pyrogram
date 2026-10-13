@@ -27,6 +27,7 @@ from pyrogram import raw
 from pyrogram.errors import PeerIdInvalid
 from pyrogram.methods.chats.get_chat import GetChat
 from pyrogram.methods.chats.get_chats import GetChats
+from pyrogram.types import Chat
 
 _CHANNEL_ID: Final = 42
 
@@ -89,3 +90,65 @@ async def test_a_chat_this_account_can_no_longer_see_raises() -> None:
         )
 
     assert raised.value.value == -_CHANNEL_ID
+
+
+class FullAnswerer(GetChat, GetChats):
+    """A client that resolves to one given peer and answers every call with the call itself."""
+
+    INVITE_LINK_RE: Final[re.Pattern[str]] = FakeClient.INVITE_LINK_RE
+
+    def __init__(self, peer: raw.base.InputPeer) -> None:
+        self._peer = peer
+
+    async def resolve_peer(self, peer_id: int | str) -> raw.base.InputPeer:
+        return self._peer
+
+    async def invoke(self, query: raw.core.TLObject) -> raw.core.TLObject:
+        return query
+
+
+async def answer_unparsed(client: GetChat, chat_full: raw.core.TLObject) -> raw.core.TLObject:
+    return chat_full
+
+
+@pytest.mark.parametrize(
+    ("peer", "query_type"),
+    [
+        pytest.param(
+            raw.types.InputPeerChannel(
+                channel_id=_CHANNEL_ID,
+                access_hash=0,
+            ),
+            raw.functions.channels.GetFullChannel,
+            id="channel",
+        ),
+        pytest.param(
+            raw.types.InputPeerUser(
+                user_id=7,
+                access_hash=0,
+            ),
+            raw.functions.users.GetFullUser,
+            id="user",
+        ),
+        pytest.param(raw.types.InputPeerSelf(), raw.functions.users.GetFullUser, id="self"),
+        pytest.param(
+            raw.types.InputPeerChat(chat_id=_CHANNEL_ID),
+            raw.functions.messages.GetFullChat,
+            id="basic-group",
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_full_information_is_asked_for_one_chat_at_a_time(
+    monkeypatch: pytest.MonkeyPatch,
+    peer: raw.base.InputPeer,
+    query_type: type[raw.core.TLObject],
+) -> None:
+    # Only `force_full=False` goes through `get_chats()`; the default asks for the full chat of
+    #  the one peer. Sending that default through the batch too answered a chat without its full
+    #  fields, and nothing failed.
+    monkeypatch.setattr(Chat, "_parse_full", answer_unparsed)
+
+    answer = await FullAnswerer(peer).get_chat("chat")
+
+    assert type(answer) is query_type
