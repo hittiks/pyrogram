@@ -18,6 +18,8 @@
 
 from __future__ import annotations as _annotations
 
+import pytest
+
 import pyrogram
 from pyrogram.parser.html import HTML
 
@@ -440,6 +442,26 @@ async def test_html_parse_keeps_an_unopened_end_tag_as_text() -> None:
     parsed = await HTML(None).parse("unopened</b>")
 
     assert parsed["message"] == "unopened</b>"
+    assert parsed["entities"] is None
+
+
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param("x</B>", id="uppercase-end-tag"),
+        pytest.param("x</b >", id="end-tag-with-a-space"),
+        pytest.param("x\nyz</B>\nw</I>", id="end-tags-on-later-lines"),
+        pytest.param("x</ i>", id="end-tag-read-as-a-comment"),
+        pytest.param("x<![CDATA[y]]>", id="cdata"),
+        pytest.param("x<!doctype html>", id="declaration"),
+        pytest.param("x<?y>", id="processing-instruction"),
+        pytest.param("x<br/>y", id="self-closing-tag"),
+    ],
+)
+async def test_html_parse_keeps_markup_without_an_entity_as_typed(markup: str) -> None:
+    parsed = await HTML(None).parse(markup)
+
+    assert parsed["message"] == markup
     assert parsed["entities"] is None
 
 

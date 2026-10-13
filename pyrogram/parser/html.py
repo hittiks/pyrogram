@@ -18,9 +18,9 @@
 
 """The Bot API HTML style, read and written.
 
-Reading runs in three passes: `Parser` turns the markup into a flat list of tokens, `_pair`
-decides which start tag each end tag closes, and `_build` walks the tokens once to produce
-the message and its entities together. Every offset is therefore known when the entity is
+Reading runs in three passes: `Parser.tokenize` turns the markup into a flat list of
+tokens, `_pair` decides which start tag each end tag closes, and `_build` walks the tokens
+once to produce the message and its entities together. Every offset is therefore known when the entity is
 constructed, and a tag that pairs with nothing survives in the message text as written.
 
 The tags themselves live in `entities.py`, once. https://core.telegram.org/bots/api#html-style
@@ -29,7 +29,7 @@ The tags themselves live in `entities.py`, once. https://core.telegram.org/bots/
 from __future__ import annotations as _annotations
 
 import html
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from html.parser import HTMLParser
 from typing import TypeAlias
 
@@ -64,7 +64,14 @@ class EndToken:
     source: str
 
 
-TokenType: TypeAlias = TextToken | StartToken | EndToken
+@dataclass(frozen=True, slots=True)
+class MarkupToken:
+    """Markup that never opens an entity, such as a comment or `<br/>`, kept as typed."""
+
+    source: str
+
+
+TokenType: TypeAlias = TextToken | StartToken | EndToken | MarkupToken
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,7 +81,11 @@ class ParsedMarkup:
 
 
 class Parser(HTMLParser):
-    """Markup in, tokens out. Nothing here knows about offsets or entities."""
+    """Markup in, tokens out. Nothing here knows about offsets or entities.
+
+    Every token but text is appended with an empty `source`, which `tokenize` then cuts
+    out of the markup. One parser reads one markup.
+    """
 
     def __init__(self) -> None:
         # `convert_charrefs` resolves `&amp;` before `handle_data` sees it. Unescaping a
@@ -83,24 +94,56 @@ class Parser(HTMLParser):
 
         self.tokens: list[TokenType] = []
 
+        # Where each token starts, as `getpos()` reports it inside the handler.
+        self._positions: list[tuple[int, int]] = []
+
+    def tokenize(self, markup: str) -> list[TokenType]:
+        """The tokens of `markup`, every tag carrying its source exactly as typed.
+
+        `html.parser` hands a handler the tag name lowercased and a comment or a declaration
+        without its brackets, so rebuilding the source from those turned `</B>` into `</b>`
+        and `</ i>` into `<!-- i-->`. A token runs from where it starts to where the next one
+        does, so the source is cut from the markup instead.
+        """
+        self.feed(markup)
+        self.close()
+
+        # `getpos()` counts lines from 1 and columns from 0, and only `\n` ends a line:
+        #  https://github.com/python/cpython/blob/b494f5935c92951e75597bfe1c8b1f3112fec270/Lib/_markupbase.py#L32-L55
+        line_starts = [
+            0,
+            *(index + 1 for index, character in enumerate(markup) if character == "\n"),
+        ]
+        starts = [line_starts[line - 1] + column for line, column in self._positions]
+        ends = [*starts[1:], len(markup)]
+
+        return [
+            token if isinstance(token, TextToken) else replace(token, source=markup[start:end])
+            for token, start, end in zip(self.tokens, starts, ends, strict=True)
+        ]
+
+    def _append(self, token: TokenType) -> None:
+        self._positions.append(self.getpos())
+        self.tokens.append(token)
+
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         # A valueless attribute such as the `expandable` of a blockquote parses as `None`.
         attributes = {name: value or "" for name, value in attrs}
 
-        self.tokens.append(
+        self._append(
             StartToken(
                 tag=tag,
                 attributes=attributes,
-                source=self.get_starttag_text() or "",
+                source="",
                 spec=spec_for_tag(tag, attributes=attributes),
             )
         )
 
     def handle_endtag(self, tag: str) -> None:
-        self.tokens.append(
+        self._append(
             EndToken(
                 tag=tag,
-                source=f"</{tag}>",
+                source="",
             )
         )
 
@@ -108,22 +151,30 @@ class Parser(HTMLParser):
         del tag, attrs
 
         # No entity tag is self-closing, so `<br/>` is text and stays text.
-        self.tokens.append(TextToken(text=self.get_starttag_text() or ""))
+        self._append(MarkupToken(source=""))
 
     def handle_data(self, data: str) -> None:
-        self.tokens.append(TextToken(text=data))
+        self._append(TextToken(text=data))
 
     def handle_comment(self, data: str) -> None:
-        self.tokens.append(TextToken(text=f"<!--{data}-->"))
+        del data
+
+        self._append(MarkupToken(source=""))
 
     def handle_decl(self, decl: str) -> None:
-        self.tokens.append(TextToken(text=f"<!{decl}>"))
+        del decl
+
+        self._append(MarkupToken(source=""))
 
     def handle_pi(self, data: str) -> None:
-        self.tokens.append(TextToken(text=f"<?{data}>"))
+        del data
+
+        self._append(MarkupToken(source=""))
 
     def unknown_decl(self, data: str) -> None:
-        self.tokens.append(TextToken(text=f"<![{data}]>"))
+        del data
+
+        self._append(MarkupToken(source=""))
 
 
 def _pair(tokens: list[TokenType]) -> dict[int, int]:
@@ -234,8 +285,9 @@ def _build(tokens: list[TokenType]) -> ParsedMarkup:
             entities.append(entity)
             continue
 
-        parts.append(token.text)
-        offset += len(token.text)
+        text = token.source if isinstance(token, MarkupToken) else token.text
+        parts.append(text)
+        offset += len(text)
 
     return ParsedMarkup(
         message="".join(parts),
@@ -248,11 +300,7 @@ class HTML:
         self.client = client
 
     async def parse(self, text: str) -> dict:
-        parser = Parser()
-        parser.feed(utils.add_surrogates(text))
-        parser.close()
-
-        parsed = _build(parser.tokens)
+        parsed = _build(Parser().tokenize(utils.add_surrogates(text)))
         entities = []
 
         for entity in parsed.entities:
