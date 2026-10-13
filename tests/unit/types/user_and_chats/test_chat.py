@@ -156,3 +156,20 @@ async def test_a_full_community_parses_as_a_community_chat() -> None:
         community=_PARSED_COMMUNITY,
         raw=community_full,
     )
+
+
+# Both used to reach the channel parser, which raised `AttributeError: 'ChatEmpty' object has no
+#  attribute 'monoforum'` (`'UserEmpty'` for the other), so `get_chat(force_full=False)` crashed
+#  on a peer the account can no longer see instead of returning `None`.
+@pytest.mark.parametrize(
+    "empty",
+    [
+        pytest.param(raw.types.ChatEmpty(id=1), id="chat-empty"),
+        pytest.param(raw.types.UserEmpty(id=1), id="user-empty"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_an_empty_peer_parses_as_none(
+    empty: raw.types.ChatEmpty | raw.types.UserEmpty,
+) -> None:
+    assert await types.Chat._parse_chat(None, empty) is None
