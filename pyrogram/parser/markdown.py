@@ -110,17 +110,16 @@ def _wrap_blockquotes(text: str, *, strict: bool) -> str:
     expandable: bool = False
 
     for raw_line in text.split("\n"):
+        # A plain quote ends at the first line that does not carry the marker; an
+        #  expandable one runs until its end marker, whatever the lines look like. The
+        #  line that ends a plain quote is read afresh, since it may open the next one.
+        if inside and not expandable and not raw_line.startswith(BLOCKQUOTE_MARKER):
+            lines.append(_blockquote(quoted, expandable=False))
+
+            quoted = []
+            inside = False
+
         if inside:
-            # A plain quote ends at the first line that does not carry the marker; an
-            #  expandable one runs until its end marker, whatever the lines look like.
-            if not expandable and not raw_line.startswith(BLOCKQUOTE_MARKER):
-                lines.append(_blockquote(quoted, expandable=False))
-                lines.append(_escape(raw_line, strict=strict))
-
-                quoted = []
-                inside = False
-                continue
-
             content = _strip_marker(raw_line, marker=BLOCKQUOTE_MARKER)
 
         elif raw_line.startswith(BLOCKQUOTE_EXPANDABLE_MARKER):
@@ -221,7 +220,9 @@ def _link_markup(label: str, *, url: str, image: bool) -> str | None:
 
         return f"{TEXT_LINK.html_open(entity)}{label}{TEXT_LINK.html_close(entity)}"
 
-    parsed = urllib.parse.urlparse(url)
+    # The strict pass html-escapes the whole line before this one reads it, so a `&` in
+    #  the query arrives as `&amp;` and `parse_qs` would read the wrong key.
+    parsed = urllib.parse.urlparse(html.unescape(url))
     parameters = urllib.parse.parse_qs(parsed.query)
 
     # Validated before any tag is written: a link that fails here has to survive as the

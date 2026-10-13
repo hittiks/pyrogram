@@ -185,8 +185,11 @@ class BlockquoteSpec(EntitySpec):
         lines = message[entity.offset : end].split("\n")
 
         # A quote that ends on a newline has an empty last line, which needs no marker.
+        #  Its `||` goes before that newline: written after it, the marker opened the
+        #  next line, and `parse` then ran the quote to the end of the message.
         if lines and not lines[-1]:
             lines.pop()
+            end -= 1
 
         insertions: list[Insertion] = []
         offset: int = entity.offset

@@ -558,3 +558,61 @@ def test_markdown_unparse_blockquote_ending_on_a_newline() -> None:
         )
         == "> q\nr"
     )
+
+
+def test_markdown_unparse_expandable_blockquote_ending_on_a_newline() -> None:
+    # The end marker goes before the newline; after it, `||` opened the next line and the
+    #  quote ran to the end of the message on the way back.
+    entities = [
+        pyrogram.types.MessageEntity(
+            type=pyrogram.enums.MessageEntityType.BLOCKQUOTE,
+            offset=0,
+            length=2,
+            expandable=True,
+        ),
+    ]
+
+    assert (
+        Markdown.unparse(
+            text="q\nr",
+            entities=entities,
+        )
+        == "**> q||\nr"
+    )
+
+
+async def test_markdown_parse_expandable_blockquote_right_after_a_plain_one() -> None:
+    plain = pyrogram.raw.types.MessageEntityBlockquote(
+        offset=0,
+        length=1,
+        collapsed=False,
+    )
+    expandable = pyrogram.raw.types.MessageEntityBlockquote(
+        offset=2,
+        length=1,
+        collapsed=True,
+    )
+
+    parsed = await Markdown(None).parse("> a\n**> b||")
+
+    assert parsed["message"] == "a\nb"
+    assert [repr(entity) for entity in parsed["entities"]] == [repr(plain), repr(expandable)]
+
+
+async def test_markdown_parse_time_link_format_in_strict_mode() -> None:
+    expected = pyrogram.raw.types.MessageEntityFormattedDate(
+        offset=0,
+        length=1,
+        date=5,
+        relative=False,
+        short_time=True,
+        long_time=False,
+        short_date=False,
+        long_date=False,
+        day_of_week=False,
+    )
+
+    parsed = await Markdown(None).parse("![t](tg://time?unix=5&format=t)", strict=True)
+
+    assert parsed["message"] == "t"
+    assert [repr(entity) for entity in parsed["entities"]] == [repr(expected)]
