@@ -19,6 +19,7 @@
 
 from __future__ import annotations as _annotations
 
+from operator import attrgetter
 from typing import Final
 
 import pytest
@@ -37,7 +38,7 @@ _ADMIN: Final[raw.types.User] = raw.types.User(
 
 
 @pytest.mark.parametrize(
-    "action",
+    ("action", "expected"),
     [
         pytest.param(
             raw.types.ChannelAdminLogEventActionChangeLocation(
@@ -47,13 +48,41 @@ _ADMIN: Final[raw.types.User] = raw.types.User(
                     address="Somewhere",
                 ),
             ),
+            {
+                "location_changed.old_location": None,
+                "location_changed.new_location.address": "Somewhere",
+                "location_changed.new_location.longitude": None,
+            },
             id="location-set-without-a-point",
+        ),
+        pytest.param(
+            raw.types.ChannelAdminLogEventActionChangeLocation(
+                prev_value=raw.types.ChannelLocation(
+                    geo_point=raw.types.GeoPoint(
+                        long=1.5,
+                        lat=2.5,
+                        access_hash=0,
+                    ),
+                    address="Somewhere",
+                ),
+                new_value=raw.types.ChannelLocationEmpty(),
+            ),
+            {
+                "location_changed.old_location.longitude": 1.5,
+                "location_changed.old_location.address": "Somewhere",
+                "location_changed.new_location": None,
+            },
+            id="location-removed",
         ),
         pytest.param(
             raw.types.ChannelAdminLogEventActionChangeLinkedChat(
                 prev_value=0,
                 new_value=0,
             ),
+            {
+                "linked_chat_changed.old_linked_chat": None,
+                "linked_chat_changed.new_linked_chat": None,
+            },
             id="linked-chat-unlinked",
         ),
         pytest.param(
@@ -61,6 +90,10 @@ _ADMIN: Final[raw.types.User] = raw.types.User(
                 prev_value=raw.types.EmojiStatus(document_id=5),
                 new_value=raw.types.EmojiStatusEmpty(),
             ),
+            {
+                "emoji_status_changed.old_emoji_status.custom_emoji_id": "5",
+                "emoji_status_changed.new_emoji_status": None,
+            },
             id="emoji-status-cleared",
         ),
         pytest.param(
@@ -68,18 +101,24 @@ _ADMIN: Final[raw.types.User] = raw.types.User(
                 prev_value=raw.types.ChatReactionsAll(),
                 new_value=raw.types.ChatReactionsNone(),
             ),
+            {
+                "available_reactions_changed.old_available_reactions.all_are_enabled": True,
+                "available_reactions_changed.new_available_reactions": None,
+            },
             id="reactions-disabled",
         ),
         pytest.param(
             raw.types.ChannelAdminLogEventActionPinTopic(
                 new_topic=raw.types.ForumTopicDeleted(id=3),
             ),
+            {"forum_topic_pinned.old_topic_info": None, "forum_topic_pinned.new_topic_info.id": 3},
             id="first-topic-pinned",
         ),
         pytest.param(
             raw.types.ChannelAdminLogEventActionParticipantJoinByInvite(
                 invite=raw.types.ChatInvitePublicJoinRequests(),
             ),
+            {"member_joined_by_invite_link.invite_link": None},
             id="joined-by-public-request-link",
         ),
         pytest.param(
@@ -87,6 +126,7 @@ _ADMIN: Final[raw.types.User] = raw.types.User(
                 invite=raw.types.ChatInvitePublicJoinRequests(),
                 approved_by=_ABSENT_ID,
             ),
+            {"member_joined_by_invite_link.approver_user": None},
             id="approver-not-in-users",
         ),
         pytest.param(
@@ -98,6 +138,10 @@ _ADMIN: Final[raw.types.User] = raw.types.User(
                     volume=5,
                 ),
             ),
+            {
+                "video_chat_participant_volume_level_changed.participant": None,
+                "video_chat_participant_volume_level_changed.volume_level": 5,
+            },
             id="participant-not-in-users",
         ),
     ],
@@ -105,6 +149,7 @@ _ADMIN: Final[raw.types.User] = raw.types.User(
 @pytest.mark.asyncio
 async def test_an_event_with_an_empty_or_unknown_value_parses(
     action: raw.base.ChannelAdminLogEventAction,
+    expected: dict[str, str | float | None],
 ) -> None:
     event = raw.types.ChannelAdminLogEvent(
         id=1,
@@ -123,3 +168,6 @@ async def test_an_event_with_an_empty_or_unknown_value_parses(
     parsed = await types.ChatEvent._parse(client, event, {_ADMIN_ID: _ADMIN}, {})
 
     assert parsed.member.id == _ADMIN_ID
+    # Parsing alone is not enough: an empty value has to come out as `None` and a
+    #  full one beside it has to keep its data.
+    assert {path: attrgetter(path)(parsed) for path in expected} == expected
