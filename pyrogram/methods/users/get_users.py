@@ -78,7 +78,7 @@ class GetUsers:
 
         users = types.List()
 
-        # A deleted account arrives as `userEmpty`, and this method has always given it back as `None`.
+        # An id with no user behind it arrives as `userEmpty`, and this method has always given it back as `None`.
         for i in r:
             users.append(
                 await types.User._parse(self, i) if not isinstance(i, raw.types.UserEmpty) else None
