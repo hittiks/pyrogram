@@ -506,3 +506,35 @@ async def test_markdown_parse_lone_backtick_keeps_the_markup_after_it() -> None:
 
     assert parsed["message"] == "don`t bold"
     assert [repr(entity) for entity in parsed["entities"]] == [repr(expected)]
+
+
+async def test_markdown_parse_keeps_a_trailing_newline_after_a_blockquote() -> None:
+    expected = pyrogram.raw.types.MessageEntityBlockquote(
+        offset=0,
+        length=1,
+        collapsed=False,
+    )
+
+    parsed = await Markdown(None).parse("> q\n")
+
+    assert parsed["message"] == "q\n"
+    assert [repr(entity) for entity in parsed["entities"]] == [repr(expected)]
+
+
+def test_markdown_unparse_blockquote_ending_on_a_newline() -> None:
+    # The quote covers `q\n`; a marker on the empty line after it would pull `r` in.
+    entities = [
+        pyrogram.types.MessageEntity(
+            type=pyrogram.enums.MessageEntityType.BLOCKQUOTE,
+            offset=0,
+            length=2,
+        ),
+    ]
+
+    assert (
+        Markdown.unparse(
+            text="q\nr",
+            entities=entities,
+        )
+        == "> q\nr"
+    )
