@@ -50,8 +50,9 @@ class GetChat:
 
         Raises:
             ValueError: In case the chat invite link points to a chat you haven't joined yet.
-            PeerIdInvalid: In case the server answers with an empty peer, which is what a chat this
-                account can no longer see comes back as. The identifier is on the error's ``value``.
+            PeerIdInvalid: In case *force_full* is False and the server answers with an empty peer,
+                which is what a chat this account can no longer see comes back as. The identifier is
+                on the error's ``value``.
 
         Example:
             .. code-block:: python
