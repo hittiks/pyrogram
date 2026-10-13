@@ -537,6 +537,25 @@ async def test_markdown_parse_keeps_the_backslashes_inside_code(strict: bool) ->
     assert [repr(entity) for entity in parsed["entities"]] == [repr(expected)]
 
 
+@pytest.mark.parametrize(
+    "strict",
+    [
+        pytest.param(False, id="default"),
+        pytest.param(True, id="strict"),
+    ],
+)
+async def test_markdown_parse_code_ending_in_a_backslash(strict: bool) -> None:
+    expected = pyrogram.raw.types.MessageEntityCode(
+        offset=0,
+        length=3,
+    )
+
+    parsed = await Markdown(None).parse("`C:\\`", strict=strict)
+
+    assert parsed["message"] == "C:\\"
+    assert [repr(entity) for entity in parsed["entities"]] == [repr(expected)]
+
+
 async def test_markdown_parse_keeps_the_backslashes_inside_a_fence() -> None:
     expected = pyrogram.raw.types.MessageEntityPre(
         offset=0,

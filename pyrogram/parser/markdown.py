@@ -59,13 +59,29 @@ from .html import HTML
 
 _DELIMITER_PATTERN: Final[str] = "|".join(re.escape(delimiter) for delimiter in MARKDOWN_DELIMITERS)
 
+
+def _markdown_re(escapable: str) -> re.Pattern[str]:
+    return re.compile(
+        rf"\\(?P<escaped>[{re.escape(escapable)}])"
+        rf"|(?P<delimiter>{_DELIMITER_PATTERN})"
+        r"|(?P<image>!?)\[(?P<label>.+?)\]\((?P<url>.+?)\)"
+    )
+
+
 # Only ASCII punctuation can be escaped, as in CommonMark, so that the backslashes of
 #  `C:\Users` or `\d+` reach the message instead of being eaten.
 #  https://spec.commonmark.org/0.31.2/#backslash-escapes
-MARKDOWN_RE: Final[re.Pattern[str]] = re.compile(
-    rf"\\(?P<escaped>[{re.escape(string.punctuation)}])"
-    rf"|(?P<delimiter>{_DELIMITER_PATTERN})"
-    r"|(?P<image>!?)\[(?P<label>.+?)\]\((?P<url>.+?)\)"
+MARKDOWN_RE: Final[re.Pattern[str]] = _markdown_re(string.punctuation)
+
+# Inside a fixed-width run no backslash escapes a backtick, so `C:\` in backticks is code
+#  ending in a backslash, as in CommonMark. The other escapes are still matched there,
+#  so that `_convert_inline` writes an escaped `<` as a character reference.
+_FIXED_WIDTH_RE: Final[re.Pattern[str]] = _markdown_re(
+    "".join(
+        character
+        for character in string.punctuation
+        if character not in "".join(FIXED_WIDTH_DELIMITERS)
+    )
 )
 
 
@@ -158,27 +174,71 @@ def _wrap_blockquotes(text: str, *, strict: bool) -> str:
     return "\n".join(lines)
 
 
+def _delimiter(match: re.Match[str]) -> str | None:
+    """The delimiter a match is, or `None` for an escape or a link."""
+    return match.group("delimiter")
+
+
+def _fixed_width_run(text: str, *, delimiter: str, position: int) -> list[re.Match[str]]:
+    """The matches of a fixed-width run up to its closing delimiter, or none if none closes it."""
+    run: list[re.Match[str]] = []
+
+    for match in _FIXED_WIDTH_RE.finditer(text, position):
+        run.append(match)
+
+        if _delimiter(match) == delimiter:
+            return run
+
+    return []
+
+
+def _scan(text: str) -> list[re.Match[str]]:
+    """Every delimiter, link and escape, a fixed-width run read with `_FIXED_WIDTH_RE`."""
+    matches: list[re.Match[str]] = []
+    position: int = 0
+
+    while (match := MARKDOWN_RE.search(text, position)) is not None:
+        position = match.end()
+        delimiter = _delimiter(match)
+
+        if delimiter not in FIXED_WIDTH_DELIMITERS:
+            matches.append(match)
+            continue
+
+        run = _fixed_width_run(
+            text,
+            delimiter=delimiter,
+            position=position,
+        )
+
+        # A fixed-width delimiter that nothing closes is a literal character. Entering the
+        #  run anyway turned every delimiter and link after it into text, so a lone backtick
+        #  before `**x**` cost it its bold.
+        if not run:
+            continue
+
+        matches.append(match)
+        matches.extend(run)
+        position = run[-1].end()
+
+    return matches
+
+
 def _pair(matches: list[re.Match[str]]) -> tuple[dict[int, int], set[int]]:
     """Which delimiters pair, and which links and escapes sit inside a fixed-width run.
 
     Anything inside a fixed-width run is left alone: a link stays text, and an escape keeps
     its backslash, since escapes do not work in code, as in CommonMark.
     https://spec.commonmark.org/0.31.2/#backslash-escapes
+    `_scan` keeps only the fixed-width delimiters that open or close a run.
     """
     closes: dict[int, int] = {}
     literal: set[int] = set()
     opened: dict[str, int] = {}
     fixed_width: str | None = None
 
-    # A fixed-width delimiter that nothing closes is a literal character. Entering the run
-    #  anyway turned every delimiter and link after it into text, so a lone backtick
-    #  before `**x**` cost it its bold.
-    last_index: dict[str | None, int] = {
-        match.group("delimiter"): index for index, match in enumerate(matches)
-    }
-
     for index, match in enumerate(matches):
-        delimiter = match.group("delimiter")
+        delimiter = _delimiter(match)
 
         if fixed_width is not None:
             if delimiter == fixed_width:
@@ -198,9 +258,6 @@ def _pair(matches: list[re.Match[str]]) -> tuple[dict[int, int], set[int]]:
             continue
 
         if delimiter in FIXED_WIDTH_DELIMITERS:
-            if last_index[delimiter] == index:
-                continue
-
             fixed_width = delimiter
 
         opened[delimiter] = index
@@ -275,7 +332,7 @@ def _delimiter_entity(spec: EntitySpec, *, language: str) -> types.MessageEntity
 
 def _convert_inline(text: str) -> str:
     """Delimiters and links become HTML tags. Everything unpaired stays as it was typed."""
-    matches = list(MARKDOWN_RE.finditer(text))
+    matches = _scan(text)
     pairs, literal = _pair(matches)
     closings: dict[int, str] = {}
 
@@ -302,7 +359,7 @@ def _convert_inline(text: str) -> str:
             parts.append(f"&#{ord(escaped)};")
             continue
 
-        delimiter = match.group("delimiter")
+        delimiter = _delimiter(match)
 
         if delimiter is None and index in literal:
             parts.append(chunk)
