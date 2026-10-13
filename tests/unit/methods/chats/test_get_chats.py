@@ -201,6 +201,23 @@ async def test_the_own_account_is_found_by_its_id_as_well_as_by_me() -> None:
 
 
 @pytest.mark.asyncio
+async def test_saved_messages_is_not_matched_to_another_user_in_the_same_call() -> None:
+    # "me" shares its batch with every other peer asked for. Reading the `self` flag off only the
+    #  answer that carries it is what keeps "me" from coming back as whichever user or chat the
+    #  server happened to answer last.
+    peers = {
+        "me": raw.types.InputPeerSelf(),
+        8: a_user_peer(8),
+        -42: raw.types.InputPeerChat(chat_id=42),
+    }
+    raw_chats = [a_user(7, is_self=True), a_user(8), a_group(42)]
+
+    chats = await answerer(peers, raw_chats=raw_chats).get_chats(["me", 8, -42])
+
+    assert [chat.id for chat in chats] == [7, 8, -42]
+
+
+@pytest.mark.asyncio
 async def test_one_call_is_made_per_kind_of_peer_however_many_identifiers() -> None:
     peers = {
         7: a_user_peer(7),
