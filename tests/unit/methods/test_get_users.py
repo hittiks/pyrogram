@@ -84,14 +84,16 @@ async def test_a_list_keeps_only_the_users_telegram_answered_with() -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_deleted_account_arrives_as_nothing() -> None:
-    # `userEmpty` is what the server sends for an account that no longer exists; `User._parse()`
-    #  turns it into `None`, and that is what the single-identifier path has always returned.
+async def test_an_id_no_account_has_arrives_as_nothing() -> None:
+    # `userEmpty` is what the server sends for an id no account has; `User._parse()` turns it
+    #  into `None`, and that is what the single-identifier path has always returned. A deleted
+    #  account is not this, see `test_a_deleted_account_is_still_a_user`.
+    #  https://core.telegram.org/constructor/userEmpty
     assert await answerer([raw.types.UserEmpty(id=42)]).get_users(42) is None
 
 
 @pytest.mark.asyncio
-async def test_a_list_leaves_out_the_accounts_that_no_longer_exist() -> None:
+async def test_a_list_leaves_out_the_ids_no_account_has() -> None:
     # A `userEmpty` in the middle of the vector used to become a `None` element, which is a hole
     #  no caller can iterate past. The identifiers Telegram omits entirely are already absent
     #  from the list, so dropping these restores that invariant rather than inventing a second.
