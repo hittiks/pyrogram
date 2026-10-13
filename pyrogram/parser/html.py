@@ -115,7 +115,7 @@ class Parser(HTMLParser):
             *(index + 1 for index, character in enumerate(markup) if character == "\n"),
         ]
         starts = [line_starts[line - 1] + column for line, column in self._positions]
-        ends = [*starts[1:], len(markup)]
+        ends = [*starts, len(markup)][1:]
 
         return [
             token if isinstance(token, TextToken) else replace(token, source=markup[start:end])

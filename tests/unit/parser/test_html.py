@@ -445,6 +445,13 @@ async def test_html_parse_keeps_an_unopened_end_tag_as_text() -> None:
     assert parsed["entities"] is None
 
 
+async def test_html_parse_empty_markup() -> None:
+    parsed = await HTML(None).parse("")
+
+    assert parsed["message"] == ""
+    assert parsed["entities"] is None
+
+
 @pytest.mark.parametrize(
     "markup",
     [
