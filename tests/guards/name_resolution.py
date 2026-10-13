@@ -89,9 +89,10 @@ def hand_written_files() -> Iterator[pathlib.Path]:
 def generated_files() -> Generator[pathlib.Path]:
     """Every module `make api` writes, so nothing until it has run."""
     for root in GENERATED:
-        paths = sorted(root.rglob("*.py")) if root.is_dir() else [root]
-
-        yield from paths
+        if root.is_dir():
+            yield from sorted(root.rglob("*.py"))
+        elif root.is_file():
+            yield root
 
 
 def tooling_files() -> Iterator[pathlib.Path]:
