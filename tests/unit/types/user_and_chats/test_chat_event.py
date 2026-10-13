@@ -97,6 +97,17 @@ _ADMIN: Final[raw.types.User] = raw.types.User(
             id="emoji-status-cleared",
         ),
         pytest.param(
+            raw.types.ChannelAdminLogEventActionChangeEmojiStatus(
+                prev_value=raw.types.EmojiStatusEmpty(),
+                new_value=raw.types.EmojiStatus(document_id=5),
+            ),
+            {
+                "emoji_status_changed.old_emoji_status": None,
+                "emoji_status_changed.new_emoji_status.custom_emoji_id": "5",
+            },
+            id="emoji-status-set",
+        ),
+        pytest.param(
             raw.types.ChannelAdminLogEventActionChangeAvailableReactions(
                 prev_value=raw.types.ChatReactionsAll(),
                 new_value=raw.types.ChatReactionsNone(),
@@ -106,6 +117,17 @@ _ADMIN: Final[raw.types.User] = raw.types.User(
                 "available_reactions_changed.new_available_reactions": None,
             },
             id="reactions-disabled",
+        ),
+        pytest.param(
+            raw.types.ChannelAdminLogEventActionChangeAvailableReactions(
+                prev_value=raw.types.ChatReactionsNone(),
+                new_value=raw.types.ChatReactionsAll(),
+            ),
+            {
+                "available_reactions_changed.old_available_reactions": None,
+                "available_reactions_changed.new_available_reactions.all_are_enabled": True,
+            },
+            id="reactions-enabled",
         ),
         pytest.param(
             raw.types.ChannelAdminLogEventActionPinTopic(
@@ -143,6 +165,34 @@ _ADMIN: Final[raw.types.User] = raw.types.User(
                 "video_chat_participant_volume_level_changed.volume_level": 5,
             },
             id="participant-not-in-users",
+        ),
+        pytest.param(
+            raw.types.ChannelAdminLogEventActionParticipantMute(
+                participant=raw.types.GroupCallParticipant(
+                    peer=raw.types.PeerUser(user_id=_ABSENT_ID),
+                    date=0,
+                    source=0,
+                ),
+            ),
+            {
+                "video_chat_participant_is_muted_toggled.participant": None,
+                "video_chat_participant_is_muted_toggled.is_muted": True,
+            },
+            id="muted-participant-not-in-users",
+        ),
+        pytest.param(
+            raw.types.ChannelAdminLogEventActionParticipantUnmute(
+                participant=raw.types.GroupCallParticipant(
+                    peer=raw.types.PeerUser(user_id=_ABSENT_ID),
+                    date=0,
+                    source=0,
+                ),
+            ),
+            {
+                "video_chat_participant_is_muted_toggled.participant": None,
+                "video_chat_participant_is_muted_toggled.is_muted": False,
+            },
+            id="unmuted-participant-not-in-users",
         ),
     ],
 )
@@ -206,3 +256,55 @@ async def test_an_edited_invite_link_keeps_both_links() -> None:
         parsed.invite_link_edited.old_invite_link.invite_link,
         parsed.invite_link_edited.new_invite_link.invite_link,
     ) == ("https://t.me/+old", "https://t.me/+new")
+
+
+@pytest.mark.parametrize(
+    ("action", "path"),
+    [
+        pytest.param(
+            raw.types.ChannelAdminLogEventActionExportedInviteRevoke(
+                invite=raw.types.ChatInviteExported(
+                    link="https://t.me/+old",
+                    admin_id=_ADMIN_ID,
+                    date=0,
+                ),
+            ),
+            "invite_link_revoked.invite_link.invite_link",
+            id="revoked",
+        ),
+        pytest.param(
+            raw.types.ChannelAdminLogEventActionExportedInviteDelete(
+                invite=raw.types.ChatInviteExported(
+                    link="https://t.me/+old",
+                    admin_id=_ADMIN_ID,
+                    date=0,
+                ),
+            ),
+            "invite_link_deleted.invite_link.invite_link",
+            id="deleted",
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_a_revoked_or_deleted_invite_link_is_parsed(
+    action: raw.base.ChannelAdminLogEventAction,
+    path: str,
+) -> None:
+    event = raw.types.ChannelAdminLogEvent(
+        id=1,
+        date=0,
+        user_id=_ADMIN_ID,
+        action=action,
+    )
+
+    client = pyrogram.Client(
+        "test",
+        api_id=1,
+        api_hash="0" * 32,
+        in_memory=True,
+    )
+
+    parsed = await types.ChatEvent._parse(client, event, {_ADMIN_ID: _ADMIN}, {})
+
+    # Without the `await` the field held an unawaited coroutine instead of the link.
+    assert attrgetter(path)(parsed) == "https://t.me/+old"
