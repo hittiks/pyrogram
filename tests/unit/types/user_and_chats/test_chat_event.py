@@ -171,3 +171,38 @@ async def test_an_event_with_an_empty_or_unknown_value_parses(
     # Parsing alone is not enough: an empty value has to come out as `None` and a
     #  full one beside it has to keep its data.
     assert {path: attrgetter(path)(parsed) for path in expected} == expected
+
+
+@pytest.mark.asyncio
+async def test_an_edited_invite_link_keeps_both_links() -> None:
+    event = raw.types.ChannelAdminLogEvent(
+        id=1,
+        date=0,
+        user_id=_ADMIN_ID,
+        action=raw.types.ChannelAdminLogEventActionExportedInviteEdit(
+            prev_invite=raw.types.ChatInviteExported(
+                link="https://t.me/+old",
+                admin_id=_ADMIN_ID,
+                date=0,
+            ),
+            new_invite=raw.types.ChatInviteExported(
+                link="https://t.me/+new",
+                admin_id=_ADMIN_ID,
+                date=0,
+            ),
+        ),
+    )
+
+    client = pyrogram.Client(
+        "test",
+        api_id=1,
+        api_hash="0" * 32,
+        in_memory=True,
+    )
+
+    parsed = await types.ChatEvent._parse(client, event, {_ADMIN_ID: _ADMIN}, {})
+
+    assert (
+        parsed.invite_link_edited.old_invite_link.invite_link,
+        parsed.invite_link_edited.new_invite_link.invite_link,
+    ) == ("https://t.me/+old", "https://t.me/+new")
