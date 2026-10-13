@@ -25,9 +25,11 @@ the `_connect` signature instead of the `raise` in `send` the comment was about,
 schema update moved the four `main_api.tl` ones as well. A comment names the function or
 the TL constructor instead, which is found by a search and does not move.
 
-A permalink is not a citation of this kind: it is pinned to a commit, so its line cannot
-move, and it marks the line with `#L`, not `:`. URLs are removed before the search, which
-also keeps a `host:port` inside one from reading as a citation.
+The line is matched in every spelling a comment uses for it: `tcp.py:505`, `tcp.py:L505`,
+`tcp.py#L505`, and a backticked path followed by `:505`. A permalink is not a citation of
+this kind: it is pinned to a commit, so its line cannot move. URLs are removed before the
+search, which is what lets a permalink's `#L253` through and also keeps a `host:port`
+inside one from reading as a citation.
 """
 
 from __future__ import annotations as _annotations
@@ -49,7 +51,7 @@ if TYPE_CHECKING:
     import pathlib
     from collections.abc import Iterator
 
-_PATH_LINE: Final[re.Pattern[str]] = re.compile(r"\w\.[A-Za-z]\w*:\d+")
+_PATH_LINE: Final[re.Pattern[str]] = re.compile(r"\w\.[A-Za-z]\w*`?(?::L?|#L)\d+")
 _URL: Final[re.Pattern[str]] = re.compile(r"\w+://\S+")
 
 
@@ -104,6 +106,11 @@ def test_the_sweep_reads_both_halves_of_what_it_asks() -> None:
 
     # The failure names the line of the comment, so a citation below the first line is pinned.
     assert path_line_citations("x = 1\n\n# see `conftest.py:37`\n") == [3]
+
+    # The other spellings of the same line number, each of which moves just the same.
+    assert path_line_citations("# see `tcp.py#L505`\n") == [1]
+    assert path_line_citations("# see `tcp.py:L505`\n") == [1]
+    assert path_line_citations("# see `pyrogram/session/session.py`:728\n") == [1]
 
     assert (
         path_line_citations("# `keyboardButtonStyle` in `compiler/api/source/main_api.tl`\n") == []
