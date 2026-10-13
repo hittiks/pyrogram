@@ -68,7 +68,11 @@ async def test_every_enum_member_resolves_to_its_raw_action(action: enums.ChatAc
     )
 
     assert result is True
-    assert isinstance(client.captured, action.value)
+    assert type(client.captured) is action.value
+
+    # An enum member carries no fields, so the upload and import actions it builds report
+    #  no progress; this pins the enum path the `types.ChatAction` family leaves as it was.
+    assert getattr(client.captured, "progress", 0) == 0
 
 
 def test_the_actions_map_holds_no_stale_entries() -> None:
