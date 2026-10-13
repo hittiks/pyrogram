@@ -237,6 +237,32 @@ def test_markdown_unparse_mixed() -> None:
     assert Markdown.unparse(text=text, entities=entities) == expected
 
 
+def test_markdown_unparse_closes_entities_on_one_span_inner_first() -> None:
+    expected: str = "**__ab__**"
+    text: str = "ab"
+    entities = pyrogram.types.List(
+        [
+            pyrogram.types.MessageEntity(
+                type=pyrogram.enums.MessageEntityType.BOLD,
+                offset=0,
+                length=2,
+            ),
+            pyrogram.types.MessageEntity(
+                type=pyrogram.enums.MessageEntityType.ITALIC,
+                offset=0,
+                length=2,
+            ),
+        ]
+    )
+
+    markup: str = Markdown.unparse(
+        text=text,
+        entities=entities,
+    )
+
+    assert markup == expected
+
+
 def test_markdown_unparse_no_entities() -> None:
     expected: str = "text"
     text: str = "text"
@@ -1308,6 +1334,36 @@ _ROUND_TRIP_CORPUS: Final[tuple[pytest.ParameterSet, ...]] = (
             ),
         ],
         id="spoiler-in-a-second-expandable-quote",
+    ),
+    # A `||` inside code is text, so it does not count toward the spoilers that decide
+    #  whether the `||` after it ends the quote.
+    pytest.param(
+        "a||\nc",
+        [
+            pyrogram.types.MessageEntity(
+                type=pyrogram.enums.MessageEntityType.BLOCKQUOTE,
+                offset=0,
+                length=3,
+                expandable=True,
+            ),
+            pyrogram.types.MessageEntity(
+                type=pyrogram.enums.MessageEntityType.CODE,
+                offset=0,
+                length=3,
+            ),
+        ],
+        [
+            pyrogram.raw.types.MessageEntityBlockquote(
+                offset=0,
+                length=3,
+                collapsed=True,
+            ),
+            pyrogram.raw.types.MessageEntityCode(
+                offset=0,
+                length=3,
+            ),
+        ],
+        id="bars-in-code-ending-an-expandable-quote",
     ),
     pytest.param(
         "text",
