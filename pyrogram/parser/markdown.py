@@ -30,6 +30,7 @@ from __future__ import annotations as _annotations
 
 import html
 import re
+import string
 import urllib.parse
 from dataclasses import dataclass, field
 from typing import Final
@@ -43,6 +44,7 @@ from .entities import (
     BLOCKQUOTE_EXPANDABLE_END,
     BLOCKQUOTE_EXPANDABLE_MARKER,
     BLOCKQUOTE_MARKER,
+    CODE,
     CUSTOM_EMOJI,
     DATE_TIME,
     FIXED_WIDTH_DELIMITERS,
@@ -60,17 +62,37 @@ from .html import HTML
 
 _DELIMITER_PATTERN: Final[str] = "|".join(re.escape(delimiter) for delimiter in MARKDOWN_DELIMITERS)
 
-MARKDOWN_RE: Final[re.Pattern[str]] = re.compile(
-    r"\\(?P<escaped>[\s\S])"
-    rf"|(?P<delimiter>{_DELIMITER_PATTERN})"
-    # A label ends at the first unescaped `]`, a url at the first unescaped `)`; an
-    #  escaped pair passes through whole, so a `\]` or `\)` written by `unparse` stays
-    #  inside instead of closing early.
-    r"|(?P<image>!?)\[(?P<label>(?:\\.|[^\\\]\n])+?)\]\((?P<url>(?:\\.|[^\\)\n])+?)\)"
+
+def _markdown_re(escapable: str) -> re.Pattern[str]:
+    return re.compile(
+        rf"\\(?P<escaped>[{re.escape(escapable)}])"
+        rf"|(?P<delimiter>{_DELIMITER_PATTERN})"
+        # A label ends at the first unescaped `]`, a url at the first unescaped `)`; an
+        #  escaped pair passes through whole, so a `\]` or `\)` written by `unparse` stays
+        #  inside instead of closing early.
+        r"|(?P<image>!?)\[(?P<label>(?:\\.|[^\\\]\n])+?)\]\((?P<url>(?:\\.|[^\\)\n])+?)\)"
+    )
+
+
+# Only ASCII punctuation can be escaped, as in CommonMark, so that the backslashes of
+#  `C:\Users` or `\d+` reach the message instead of being eaten.
+#  https://spec.commonmark.org/0.31.2/#backslash-escapes
+MARKDOWN_RE: Final[re.Pattern[str]] = _markdown_re(string.punctuation)
+
+# Inside a fixed-width run no backslash escapes a backtick, so `C:\` in backticks is code
+#  ending in a backslash, as in CommonMark. The other escapes are still matched there,
+#  so that `_convert_inline` writes an escaped `<` as a character reference.
+_FIXED_WIDTH_RE: Final[re.Pattern[str]] = _markdown_re(
+    "".join(
+        character
+        for character in string.punctuation
+        if character not in "".join(FIXED_WIDTH_DELIMITERS)
+    )
 )
 
-# One escape pair, capturing the character it protects.
-_ESCAPED_CHAR_RE: Final[re.Pattern[str]] = re.compile(r"\\(.)")
+# One escape pair, capturing the character it protects; as in `MARKDOWN_RE`, only ASCII
+#  punctuation is escapable, so a url keeps the backslash of `\d`.
+_ESCAPED_CHAR_RE: Final[re.Pattern[str]] = re.compile(rf"\\([{re.escape(string.punctuation)}])")
 
 # The characters that read as a delimiter when they stand in a run: `**`, `__`, `--`,
 #  `~~` and `||` are all doubled characters, so a single one is always literal text.
@@ -174,9 +196,9 @@ def _escape(line: str, *, strict: bool) -> str:
     if not strict:
         return line
 
-    # `html.escape` must not reach inside a backslash pair: `\>` would become `\&gt;`,
-    #  and the escaped branch of `MARKDOWN_RE` then reads `\&` instead of `\>`, leaving
-    #  a literal `gt;` in the message.
+    # `html.escape` must not reach inside a backslash pair: `\<` would become `\&lt;`,
+    #  the escaped branch of `MARKDOWN_RE` then reads `\&` instead of `\<`, and the
+    #  message carries `&lt;` where the sender typed `<`.
     pieces = _BACKSLASH_PAIR_RE.split(line)
 
     return "".join(piece if index % 2 else html.escape(piece) for index, piece in enumerate(pieces))
@@ -206,19 +228,29 @@ def _wrap_blockquotes(text: str, *, strict: bool) -> str:
     inside: bool = False
     expandable: bool = False
 
+    # A `>` line inside a fence is the fence's text, as everything in a fixed-width run is.
+    fixed_width = _fixed_width_spans(text)
+    line_start: int = 0
+
     for raw_line in text.split("\n"):
+        start = line_start
+        line_start += len(raw_line) + 1
+
+        # A plain quote ends at the first line that does not carry the marker; an
+        #  expandable one runs until its end marker, whatever the lines look like. The
+        #  line that ends a plain quote is read afresh, since it may open the next one.
+        if inside and not expandable and not raw_line.startswith(BLOCKQUOTE_MARKER):
+            lines.append(_blockquote(quoted, expandable=False))
+
+            quoted = []
+            inside = False
+
         if inside:
-            # A plain quote ends at the first line that does not carry the marker; an
-            #  expandable one runs until its end marker, whatever the lines look like.
-            if not expandable and not raw_line.startswith(BLOCKQUOTE_MARKER):
-                lines.append(_blockquote(quoted, expandable=False))
-                lines.append(_escape(raw_line, strict=strict))
-
-                quoted = []
-                inside = False
-                continue
-
             content = _strip_marker(raw_line, marker=BLOCKQUOTE_MARKER)
+
+        elif any(start in span for span in fixed_width):
+            lines.append(_escape(raw_line, strict=strict))
+            continue
 
         elif raw_line.startswith(BLOCKQUOTE_EXPANDABLE_MARKER):
             inside = True
@@ -256,35 +288,107 @@ def _wrap_blockquotes(text: str, *, strict: bool) -> str:
     return "\n".join(lines)
 
 
-def _pair(matches: list[re.Match[str]]) -> dict[int, int]:
-    """Which delimiters pair. Anything inside a fixed-width run is left alone."""
+def _delimiter(match: re.Match[str]) -> str | None:
+    """The delimiter a match is, or `None` for an escape or a link."""
+    return match.group("delimiter")
+
+
+def _fixed_width_run(text: str, *, delimiter: str, position: int) -> list[re.Match[str]]:
+    """The matches of a fixed-width run up to its closing delimiter, or none if none closes it."""
+    run: list[re.Match[str]] = []
+
+    for match in _FIXED_WIDTH_RE.finditer(text, position):
+        run.append(match)
+
+        if _delimiter(match) == delimiter:
+            return run
+
+    return []
+
+
+def _scan(text: str) -> list[re.Match[str]]:
+    """Every delimiter, link and escape, a fixed-width run read with `_FIXED_WIDTH_RE`."""
+    matches: list[re.Match[str]] = []
+    position: int = 0
+
+    while (match := MARKDOWN_RE.search(text, position)) is not None:
+        position = match.end()
+        delimiter = _delimiter(match)
+
+        if delimiter not in FIXED_WIDTH_DELIMITERS:
+            matches.append(match)
+            continue
+
+        run = _fixed_width_run(
+            text,
+            delimiter=delimiter,
+            position=position,
+        )
+
+        # A fixed-width delimiter that nothing closes is a literal character. Entering the
+        #  run anyway turned every delimiter and link after it into text, so a lone backtick
+        #  before `**x**` cost it its bold.
+        if not run:
+            continue
+
+        matches.append(match)
+        matches.extend(run)
+        position = run[-1].end()
+
+    return matches
+
+
+def _pair(matches: list[re.Match[str]]) -> tuple[dict[int, int], set[int]]:
+    """Which delimiters pair, and which links and escapes sit inside a fixed-width run.
+
+    Anything inside a fixed-width run is left alone: a link stays text, and an escape keeps
+    its backslash, since escapes do not work in code, as in CommonMark.
+    https://spec.commonmark.org/0.31.2/#backslash-escapes
+    `_scan` keeps only the fixed-width delimiters that open or close a run.
+    """
     closes: dict[int, int] = {}
+    literal: set[int] = set()
     opened: dict[str, int] = {}
     fixed_width: str | None = None
 
     for index, match in enumerate(matches):
-        delimiter = match.group("delimiter")
-
-        if delimiter is None:
-            continue
+        delimiter = _delimiter(match)
 
         if fixed_width is not None:
             if delimiter == fixed_width:
                 closes[opened.pop(delimiter)] = index
                 fixed_width = None
 
+            elif delimiter is None:
+                literal.add(index)
+
+            continue
+
+        if delimiter is None:
             continue
 
         if delimiter in opened:
             closes[opened.pop(delimiter)] = index
             continue
 
-        opened[delimiter] = index
-
         if delimiter in FIXED_WIDTH_DELIMITERS:
             fixed_width = delimiter
 
-    return closes
+        opened[delimiter] = index
+
+    return closes, literal
+
+
+def _fixed_width_spans(text: str) -> list[range]:
+    """Where the text of every closed fixed-width run lies, delimiters excluded."""
+    matches = _scan(text)
+    closes, _ = _pair(matches)
+
+    return [
+        range(matches[opening].end(), matches[closing].start())
+        for opening, closing in closes.items()
+        if _delimiter(matches[opening]) in FIXED_WIDTH_DELIMITERS
+    ]
 
 
 def _link_markup(label: str, *, url: str, image: bool) -> str | None:
@@ -294,23 +398,25 @@ def _link_markup(label: str, *, url: str, image: bool) -> str | None:
             type=MessageEntityType.TEXT_LINK,
             offset=0,
             length=0,
-            url=url,
+            # `html_open` escapes the url as an attribute, and strict mode has already
+            #  escaped it once.
+            url=html.unescape(url),
         )
 
         return f"{TEXT_LINK.html_open(entity)}{label}{TEXT_LINK.html_close(entity)}"
 
     # The strict pass html-escapes the whole line before this one reads it, so a `&` in
-    #  the query arrives as `&amp;` and `parse_qs` would read the wrong key. A text link
-    #  never needs this: its url travels as an attribute, which `HTMLParser` unescapes.
+    #  the query arrives as `&amp;` and `parse_qs` would read the wrong key.
     parsed = urllib.parse.urlparse(html.unescape(url))
     parameters = urllib.parse.parse_qs(parsed.query)
 
-    # Validated before any tag is written: a link that fails here has to survive as the
-    #  text the sender typed, not as an invented literal tag.
+    # Validated before any tag is written, the way the specs' `matches` validate: a link
+    #  that fails here has to survive as the text the sender typed, not as an invented
+    #  literal tag.
     if parsed.netloc == "emoji":
         emoji_id: str = parameters.get("id", [""])[0]
 
-        if not emoji_id.isdigit():
+        if not emoji_id.isdecimal():
             return None
 
         entity = types.MessageEntity(
@@ -326,7 +432,7 @@ def _link_markup(label: str, *, url: str, image: bool) -> str | None:
         unix_time: str = parameters.get("unix", [""])[0]
         date_time_format: str = parameters.get("format", [""])[0]
 
-        if not unix_time.isdigit() or not valid_date_time_format(date_time_format):
+        if not unix_time.isdecimal() or not valid_date_time_format(date_time_format):
             return None
 
         entity = types.MessageEntity(
@@ -353,8 +459,8 @@ def _delimiter_entity(spec: EntitySpec, *, language: str) -> types.MessageEntity
 
 def _convert_inline(text: str) -> str:
     """Delimiters and links become HTML tags. Everything unpaired stays as it was typed."""
-    matches = list(MARKDOWN_RE.finditer(text))
-    pairs = _pair(matches)
+    matches = _scan(text)
+    pairs, literal = _pair(matches)
     closings: dict[int, str] = {}
 
     parts: list[str] = []
@@ -370,13 +476,22 @@ def _convert_inline(text: str) -> str:
         escaped = match.group("escaped")
 
         if escaped is not None:
-            # As a character reference, so that an escaped delimiter cannot be read as one
-            #  on the way through the HTML pass that follows.
             parts.append(chunk)
+
+            if index in literal:
+                parts.append("\\")
+
+            # As a character reference, so that an escaped `<` or `&` cannot be read as
+            #  markup by the HTML pass that follows.
             parts.append(f"&#{ord(escaped)};")
             continue
 
-        delimiter = match.group("delimiter")
+        delimiter = _delimiter(match)
+
+        if delimiter is None and index in literal:
+            parts.append(chunk)
+            parts.append(match.group(0))
+            continue
 
         if delimiter is None:
             # The label may itself carry markup, so it goes through this same pass; the
@@ -418,7 +533,8 @@ def _convert_inline(text: str) -> str:
             line_end = text.find("\n", match.end())
 
             if line_end != -1 and line_end < matches[closing_index].start():
-                language = text[match.end() : line_end]
+                # `html_open` escapes it, and strict mode has already escaped it once.
+                language = html.unescape(text[match.end() : line_end])
                 written = line_end + 1
 
         entity = _delimiter_entity(spec, language=language)
@@ -436,11 +552,11 @@ class Markdown:
     def __init__(self, client: pyrogram.Client | None):
         self.html = HTML(client)
 
-    async def parse(self, text: str, *, strict: bool = False) -> dict:
+    async def parse(self, text: str, strict: bool = False) -> dict:
         return await self.html.parse(_convert_inline(_wrap_blockquotes(text, strict=strict)))
 
     @staticmethod
-    def unparse(text: str, *, entities: list[types.MessageEntity]) -> str:
+    def unparse(text: str, entities: list[types.MessageEntity]) -> str:
         text = utils.add_surrogates(text)
         placed: list[_PlacedInsertion] = []
 
@@ -459,17 +575,28 @@ class Markdown:
                 for insertion in spec.markdown_insertions(entity, message=text)
             )
 
+        # `parse` reads the text of a fixed-width run as typed, backslashes included, so
+        #  an escape written there would reach the message.
+        fixed_width = [
+            range(entity.offset, entity.offset + entity.length)
+            for entity in entities
+            if spec_for_type(entity.type) in {CODE, PRE}
+        ]
+
         parts: list[str] = []
         written: int = 0
         line_prefix: str = ""
 
         for item in sorted(placed):
             insertion = item.insertion
-            chunk = _escape_chunk(
-                text[written : insertion.offset],
-                line_prefix=line_prefix,
-                following=insertion.text,
-            )
+            chunk = text[written : insertion.offset]
+
+            if not any(written in span for span in fixed_width):
+                chunk = _escape_chunk(
+                    chunk,
+                    line_prefix=line_prefix,
+                    following=insertion.text,
+                )
 
             parts.append(chunk)
             parts.append(insertion.text)

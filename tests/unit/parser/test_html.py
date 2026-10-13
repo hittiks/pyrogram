@@ -18,6 +18,8 @@
 
 from __future__ import annotations as _annotations
 
+import pytest
+
 import pyrogram
 from pyrogram.parser.html import HTML
 
@@ -251,6 +253,48 @@ def test_html_unparse_no_entities() -> None:
     assert HTML.unparse(text=text, entities=entities) == expected
 
 
+def test_html_unparse_escapes_the_text_outside_every_entity() -> None:
+    expected: str = "&lt;a&gt; <b>&lt;b&gt;</b> &lt;c&gt;"
+    text: str = "<a> <b> <c>"
+    entities = pyrogram.types.List(
+        [
+            pyrogram.types.MessageEntity(
+                type=pyrogram.enums.MessageEntityType.BOLD,
+                offset=4,
+                length=3,
+            )
+        ]
+    )
+
+    assert (
+        HTML.unparse(
+            text=text,
+            entities=entities,
+        )
+        == expected
+    )
+
+
+def test_html_unparse_escapes_a_message_without_entities() -> None:
+    expected: str = "&lt;b&gt;"
+    text: str = "<b>"
+    entities: list[pyrogram.types.MessageEntity] = []
+
+    assert (
+        HTML.unparse(
+            text=text,
+            entities=entities,
+        )
+        == expected
+    )
+
+
+def test_html_unparse_takes_entities_positionally() -> None:
+    entities: list[pyrogram.types.MessageEntity] = []
+
+    assert HTML.unparse("text", entities) == "text"
+
+
 # The parse side. `HTML.parse` needs a client only to resolve a `tg://user` mention,
 #  so `None` is enough for everything below.
 
@@ -284,6 +328,18 @@ async def test_html_parse_span_without_the_spoiler_class_is_not_an_entity() -> N
 
     assert parsed["message"] == '<span class="other">s</span>'
     assert parsed["entities"] is None
+
+
+async def test_html_parse_plain_span_inside_a_spoiler_span_does_not_end_it() -> None:
+    expected = pyrogram.raw.types.MessageEntitySpoiler(
+        offset=0,
+        length=16,
+    )
+
+    parsed = await HTML(None).parse('<span class="tg-spoiler">a<span>b</span>c</span>')
+
+    assert parsed["message"] == "a<span>b</span>c"
+    assert [repr(entity) for entity in parsed["entities"]] == [repr(expected)]
 
 
 async def test_html_parse_pre_with_language() -> None:
@@ -324,6 +380,67 @@ async def test_html_parse_code_outside_a_pre_stays_code() -> None:
     assert [repr(entity) for entity in parsed["entities"]] == [repr(expected)]
 
 
+async def test_html_parse_unclosed_pre_keeps_its_code() -> None:
+    expected = pyrogram.raw.types.MessageEntityCode(
+        offset=5,
+        length=3,
+    )
+
+    parsed = await HTML(None).parse('<pre><code class="language-python">x=1</code>')
+
+    assert parsed["message"] == "<pre>x=1"
+    assert [repr(entity) for entity in parsed["entities"]] == [repr(expected)]
+
+
+async def test_html_parse_code_covering_part_of_a_pre_is_not_its_language() -> None:
+    expected = [
+        pyrogram.raw.types.MessageEntityPre(
+            offset=0,
+            length=4,
+            language="",
+        ),
+        pyrogram.raw.types.MessageEntityCode(
+            offset=0,
+            length=3,
+        ),
+    ]
+
+    parsed = await HTML(None).parse('<pre><code class="language-python">x=1</code>;</pre>')
+
+    assert parsed["message"] == "x=1;"
+    assert [repr(entity) for entity in parsed["entities"]] == [repr(entity) for entity in expected]
+
+
+@pytest.mark.parametrize(
+    ("markup", "language"),
+    [
+        pytest.param('<pre language="python"><code>x=1</code></pre>', "python", id="bare-code"),
+        pytest.param('<pre><code class="other">x=1</code></pre>', "", id="class-without-language"),
+        pytest.param('<pre><code class="language-">x=1</code></pre>', "", id="empty-language"),
+    ],
+)
+async def test_html_parse_code_without_a_language_does_not_fold_into_a_pre(
+    markup: str,
+    language: str,
+) -> None:
+    expected = [
+        pyrogram.raw.types.MessageEntityPre(
+            offset=0,
+            length=3,
+            language=language,
+        ),
+        pyrogram.raw.types.MessageEntityCode(
+            offset=0,
+            length=3,
+        ),
+    ]
+
+    parsed = await HTML(None).parse(markup)
+
+    assert parsed["message"] == "x=1"
+    assert [repr(entity) for entity in parsed["entities"]] == [repr(entity) for entity in expected]
+
+
 async def test_html_parse_expandable_blockquote() -> None:
     expected = pyrogram.raw.types.MessageEntityBlockquote(
         offset=0,
@@ -355,6 +472,33 @@ async def test_html_parse_keeps_an_unopened_end_tag_as_text() -> None:
     parsed = await HTML(None).parse("unopened</b>")
 
     assert parsed["message"] == "unopened</b>"
+    assert parsed["entities"] is None
+
+
+async def test_html_parse_empty_markup() -> None:
+    parsed = await HTML(None).parse("")
+
+    assert parsed["message"] == ""
+    assert parsed["entities"] is None
+
+
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param("x</B>", id="uppercase-end-tag"),
+        pytest.param("x</b >", id="end-tag-with-a-space"),
+        pytest.param("x\nyz</B>\nw</I>", id="end-tags-on-later-lines"),
+        pytest.param("x</ i>", id="end-tag-read-as-a-comment"),
+        pytest.param("x<![CDATA[y]]>", id="cdata"),
+        pytest.param("x<!doctype html>", id="declaration"),
+        pytest.param("x<?y>", id="processing-instruction"),
+        pytest.param("x<br/>y", id="self-closing-tag"),
+    ],
+)
+async def test_html_parse_keeps_markup_without_an_entity_as_typed(markup: str) -> None:
+    parsed = await HTML(None).parse(markup)
+
+    assert parsed["message"] == markup
     assert parsed["entities"] is None
 
 
@@ -451,15 +595,74 @@ async def test_html_crossed_entities_round_trip() -> None:
     ]
 
 
-async def test_html_parse_keeps_a_malformed_emoji_id_as_text() -> None:
-    parsed = await HTML(None).parse('<tg-emoji emoji-id="abc">x</tg-emoji>')
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param('<tg-emoji emoji-id="abc">x</tg-emoji>', id="emoji-id-letters"),
+        pytest.param('<tg-emoji emoji-id="\u00b2">x</tg-emoji>', id="emoji-id-superscript-digit"),
+        pytest.param('<tg-time unix="1" format="xyz">x</tg-time>', id="date-time-format"),
+        pytest.param('<tg-time unix="\u00b2">x</tg-time>', id="date-time-superscript-digit"),
+    ],
+)
+async def test_html_parse_keeps_malformed_emoji_and_date_time_markup_as_text(markup: str) -> None:
+    parsed = await HTML(None).parse(markup)
 
-    assert parsed["message"] == '<tg-emoji emoji-id="abc">x</tg-emoji>'
+    assert parsed["message"] == markup
     assert parsed["entities"] is None
 
 
-async def test_html_parse_keeps_a_malformed_date_time_format_as_text() -> None:
-    parsed = await HTML(None).parse('<tg-time unix="1" format="xyz">x</tg-time>')
+async def test_html_url_with_markup_characters_round_trip() -> None:
+    url: str = 'https://x.com/?q="a"&amp;b'
+    entities = [
+        pyrogram.types.MessageEntity(
+            type=pyrogram.enums.MessageEntityType.TEXT_LINK,
+            offset=0,
+            length=1,
+            url=url,
+        ),
+    ]
 
-    assert parsed["message"] == '<tg-time unix="1" format="xyz">x</tg-time>'
-    assert parsed["entities"] is None
+    parsed = await HTML(None).parse(
+        HTML.unparse(
+            text="x",
+            entities=entities,
+        )
+    )
+
+    assert [repr(entity) for entity in parsed["entities"]] == [
+        repr(
+            pyrogram.raw.types.MessageEntityTextUrl(
+                offset=0,
+                length=1,
+                url=url,
+            )
+        )
+    ]
+
+
+async def test_html_pre_language_with_a_quote_round_trip() -> None:
+    entities = [
+        pyrogram.types.MessageEntity(
+            type=pyrogram.enums.MessageEntityType.PRE,
+            offset=0,
+            length=1,
+            language='a"b',
+        ),
+    ]
+
+    parsed = await HTML(None).parse(
+        HTML.unparse(
+            text="x",
+            entities=entities,
+        )
+    )
+
+    assert [repr(entity) for entity in parsed["entities"]] == [
+        repr(
+            pyrogram.raw.types.MessageEntityPre(
+                offset=0,
+                length=1,
+                language='a"b',
+            )
+        )
+    ]

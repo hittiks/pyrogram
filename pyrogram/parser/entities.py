@@ -28,6 +28,7 @@ The tags and delimiters follow the Bot API: https://core.telegram.org/bots/api#f
 
 from __future__ import annotations as _annotations
 
+import html
 import re
 from dataclasses import dataclass
 from enum import IntEnum
@@ -176,7 +177,8 @@ class PreSpec(EntitySpec):
         if not entity.language:
             return "<pre>"
 
-        return f'<pre><code class="language-{entity.language}">'
+        # Escaped as an attribute value, so that a `"` cannot end the attribute early.
+        return f'<pre><code class="language-{html.escape(entity.language)}">'
 
     def html_close(self, entity: types.MessageEntity) -> str:
         return "</code></pre>" if entity.language else "</pre>"
@@ -201,8 +203,11 @@ class BlockquoteSpec(EntitySpec):
         lines = message[entity.offset : end].split("\n")
 
         # A quote that ends on a newline has an empty last line, which needs no marker.
+        #  Its `||` goes before that newline: written after it, the marker opened the
+        #  next line, and `parse` then ran the quote to the end of the message.
         if lines and not lines[-1]:
             lines.pop()
+            end -= 1
 
         insertions: list[Insertion] = []
         offset: int = entity.offset
@@ -238,7 +243,9 @@ class TextLinkSpec(EntitySpec):
         return {"url": link_url(attributes)}
 
     def html_open(self, entity: types.MessageEntity) -> str:
-        return f'<a href="{entity.url}">'
+        # Escaped as an attribute value: a `"` in the url ended the attribute early, and
+        #  `&amp;` came back from `parse` as `&`.
+        return f'<a href="{html.escape(entity.url or "")}">'
 
     def markdown_open(self, entity: types.MessageEntity) -> str:
         return "["
@@ -280,11 +287,12 @@ class EmailSpec(EntitySpec):
 @dataclass(frozen=True)
 class CustomEmojiSpec(EntitySpec):
     def matches(self, tag: str, *, attributes: dict[str, str]) -> bool:
-        # All digits, so that a malformed id keeps the tag literal instead of raising
-        #  out of `int()` in `raw_arguments`.
+        # Decimal, so that a malformed id keeps the tag literal instead of raising out of
+        #  `int()` in `raw_arguments`. Not `isdigit()`, which also accepts `²`, and `int()`
+        #  rejects that: https://docs.python.org/3.14/library/stdtypes.html#str.isdigit
         emoji_id: str = attributes.get("emoji-id") or attributes.get("id") or ""
 
-        return tag in self.html_tags and emoji_id.isdigit()
+        return tag in self.html_tags and emoji_id.isdecimal()
 
     def raw_arguments(self, attributes: dict[str, str]) -> EntityArgumentsType:
         return {"document_id": int(attributes.get("emoji-id") or attributes["id"])}
@@ -306,8 +314,8 @@ class DateTimeSpec(EntitySpec):
             return False
 
         # Both validated here, so that a malformed tag keeps its text instead of raising
-        #  out of `raw_arguments`.
-        return attributes.get("unix", "").isdigit() and valid_date_time_format(
+        #  out of `raw_arguments`. `isdecimal()` for the reason `CustomEmojiSpec` gives.
+        return attributes.get("unix", "").isdecimal() and valid_date_time_format(
             attributes.get("format", "")
         )
 

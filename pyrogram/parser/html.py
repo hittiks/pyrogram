@@ -18,9 +18,9 @@
 
 """The Bot API HTML style, read and written.
 
-Reading runs in three passes: `Parser` turns the markup into a flat list of tokens, `_pair`
-decides which start tag each end tag closes, and `_build` walks the tokens once to produce
-the message and its entities together. Every offset is therefore known when the entity is
+Reading runs in three passes: `Parser.tokenize` turns the markup into a flat list of
+tokens, `_pair` decides which start tag each end tag closes, and `_build` walks the tokens
+once to produce the message and its entities together. Every offset is therefore known when the entity is
 constructed, and a tag that pairs with nothing survives in the message text as written.
 
 The tags themselves live in `entities.py`, once. https://core.telegram.org/bots/api#html-style
@@ -64,7 +64,14 @@ class EndToken:
     source: str
 
 
-TokenType: TypeAlias = TextToken | StartToken | EndToken
+@dataclass(frozen=True, slots=True)
+class MarkupToken:
+    """Markup that never opens an entity, such as a comment or `<br/>`, kept as typed."""
+
+    source: str
+
+
+TokenType: TypeAlias = TextToken | StartToken | EndToken | MarkupToken
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,7 +81,11 @@ class ParsedMarkup:
 
 
 class Parser(HTMLParser):
-    """Markup in, tokens out. Nothing here knows about offsets or entities."""
+    """Markup in, tokens out. Nothing here knows about offsets or entities.
+
+    Every token but text is appended with an empty `source`, which `tokenize` then cuts
+    out of the markup. One parser reads one markup.
+    """
 
     def __init__(self) -> None:
         # `convert_charrefs` resolves `&amp;` before `handle_data` sees it. Unescaping a
@@ -83,57 +94,56 @@ class Parser(HTMLParser):
 
         self.tokens: list[TokenType] = []
 
-        # One entry per open `code` tag, saying whether it was folded into a `pre`.
-        self.code_folded: list[bool] = []
+        # Where each token starts, as `getpos()` reports it inside the handler.
+        self._positions: list[tuple[int, int]] = []
+
+    def tokenize(self, markup: str) -> list[TokenType]:
+        """The tokens of `markup`, every tag carrying its source exactly as typed.
+
+        `html.parser` hands a handler the tag name lowercased and a comment or a declaration
+        without its brackets, so rebuilding the source from those turned `</B>` into `</b>`
+        and `</ i>` into `<!-- i-->`. A token runs from where it starts to where the next one
+        does, so the source is cut from the markup instead.
+        """
+        self.feed(markup)
+        self.close()
+
+        # `getpos()` counts lines from 1 and columns from 0, and only `\n` ends a line:
+        #  https://github.com/python/cpython/blob/b494f5935c92951e75597bfe1c8b1f3112fec270/Lib/_markupbase.py#L32-L55
+        line_starts = [
+            0,
+            *(index + 1 for index, character in enumerate(markup) if character == "\n"),
+        ]
+        starts = [line_starts[line - 1] + column for line, column in self._positions]
+        ends = [*starts, len(markup)][1:]
+
+        return [
+            token if isinstance(token, TextToken) else replace(token, source=markup[start:end])
+            for token, start, end in zip(self.tokens, starts, ends, strict=True)
+        ]
+
+    def _append(self, token: TokenType) -> None:
+        self._positions.append(self.getpos())
+        self.tokens.append(token)
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         # A valueless attribute such as the `expandable` of a blockquote parses as `None`.
         attributes = {name: value or "" for name, value in attrs}
 
-        if tag == "code":
-            folded = self._fold_into_pre(attributes)
-            self.code_folded.append(folded)
-
-            if folded:
-                return
-
-        self.tokens.append(
+        self._append(
             StartToken(
                 tag=tag,
                 attributes=attributes,
-                source=self.get_starttag_text() or "",
+                source="",
                 spec=spec_for_tag(tag, attributes=attributes),
             )
         )
 
-    def _fold_into_pre(self, attributes: dict[str, str]) -> bool:
-        """Whether this `code` tag is the language of the `pre` it opens, and was folded in.
-
-        `<pre><code class="language-python">` is one `pre` entity carrying a language, and is
-        the only way the Bot API spells one. The two tags have to be adjacent, as they are in
-        everything Telegram writes. https://core.telegram.org/bots/api#html-style
-        """
-        previous = self.tokens[-1] if self.tokens else None
-
-        if not isinstance(previous, StartToken) or previous.tag != "pre":
-            return False
-
-        language = attributes.get("class", "").removeprefix("language-")
-        self.tokens[-1] = replace(
-            previous,
-            attributes={**previous.attributes, "language": language},
-        )
-
-        return True
-
     def handle_endtag(self, tag: str) -> None:
-        if tag == "code" and self.code_folded and self.code_folded.pop():
-            return
-
-        self.tokens.append(
+        self._append(
             EndToken(
                 tag=tag,
-                source=f"</{tag}>",
+                source="",
             )
         )
 
@@ -141,22 +151,30 @@ class Parser(HTMLParser):
         del tag, attrs
 
         # No entity tag is self-closing, so `<br/>` is text and stays text.
-        self.tokens.append(TextToken(text=self.get_starttag_text() or ""))
+        self._append(MarkupToken(source=""))
 
     def handle_data(self, data: str) -> None:
-        self.tokens.append(TextToken(text=data))
+        self._append(TextToken(text=data))
 
     def handle_comment(self, data: str) -> None:
-        self.tokens.append(TextToken(text=f"<!--{data}-->"))
+        del data
+
+        self._append(MarkupToken(source=""))
 
     def handle_decl(self, decl: str) -> None:
-        self.tokens.append(TextToken(text=f"<!{decl}>"))
+        del decl
+
+        self._append(MarkupToken(source=""))
 
     def handle_pi(self, data: str) -> None:
-        self.tokens.append(TextToken(text=f"<?{data}>"))
+        del data
+
+        self._append(MarkupToken(source=""))
 
     def unknown_decl(self, data: str) -> None:
-        self.tokens.append(TextToken(text=f"<![{data}]>"))
+        del data
+
+        self._append(MarkupToken(source=""))
 
 
 def _pair(tokens: list[TokenType]) -> dict[int, int]:
@@ -164,12 +182,16 @@ def _pair(tokens: list[TokenType]) -> dict[int, int]:
 
     One stack per tag name, so `<b><i>x</b></i>` still yields both entities rather than
     discarding the pair that crosses.
+
+    A start tag that opens no entity is stacked too, so that the plain `<span>` inside
+    `<span class="tg-spoiler">` takes its own `</span>` rather than ending the spoiler.
+    `_build` writes both of that pair back as text.
     """
     open_by_tag: dict[str, list[int]] = {}
     pairs: dict[int, int] = {}
 
     for index, token in enumerate(tokens):
-        if isinstance(token, StartToken) and token.spec is not None:
+        if isinstance(token, StartToken):
             open_by_tag.setdefault(token.tag, []).append(index)
 
         elif isinstance(token, EndToken):
@@ -181,9 +203,54 @@ def _pair(tokens: list[TokenType]) -> dict[int, int]:
     return pairs
 
 
+def _fold_code_into_pre(
+    tokens: list[TokenType],
+    *,
+    pairs: dict[int, int],
+) -> tuple[dict[int, str], set[int]]:
+    """The language of every `pre` that a `code` pair fills exactly, and those `code` tags.
+
+    `<pre><code class="language-python">` is one `pre` entity carrying a language, and is
+    the only way the Bot API spells one. Telegram folds the two only when they cover the
+    same text, so both pairs have to be adjacent: https://github.com/tdlib/td/blob/c15d3f5a5de6e3ba5839822c451152e5e18bb700/td/telegram/MessageEntity.cpp#L3600-L3617
+    and only when the `code` carries a language, which only a `language-` class gives it:
+    https://github.com/tdlib/td/blob/c15d3f5a5de6e3ba5839822c451152e5e18bb700/td/telegram/MessageEntity.cpp#L3513-L3515
+    A bare `code` folded anyway replaced the language of `<pre language="python">`.
+    Run after `_pair`, so that an unclosed `pre` keeps its `code` pair.
+    """
+    languages: dict[int, str] = {}
+    folded: set[int] = set()
+
+    for start, end in pairs.items():
+        pre = tokens[start]
+        code = tokens[start + 1]
+
+        if not isinstance(pre, StartToken) or pre.tag != "pre":
+            continue
+
+        if (
+            not isinstance(code, StartToken)
+            or code.tag != "code"
+            or pairs.get(start + 1) != end - 1
+        ):
+            continue
+
+        code_class: str = code.attributes.get("class", "")
+        language: str = code_class.removeprefix("language-")
+
+        if language == code_class or not language:
+            continue
+
+        languages[start] = language
+        folded.update((start + 1, end - 1))
+
+    return languages, folded
+
+
 def _build(tokens: list[TokenType]) -> ParsedMarkup:
     """The message text and its entities, in one left-to-right sweep."""
     pairs = _pair(tokens)
+    languages, folded = _fold_code_into_pre(tokens, pairs=pairs)
     closing: dict[int, raw.base.MessageEntity] = {}
 
     parts: list[str] = []
@@ -191,6 +258,9 @@ def _build(tokens: list[TokenType]) -> ParsedMarkup:
     entities: list[raw.base.MessageEntity] = []
 
     for index, token in enumerate(tokens):
+        if index in folded:
+            continue
+
         if isinstance(token, EndToken):
             entity = closing.pop(index, None)
 
@@ -210,17 +280,23 @@ def _build(tokens: list[TokenType]) -> ParsedMarkup:
                 offset += len(token.source)
                 continue
 
+            attributes = token.attributes
+
+            if index in languages:
+                attributes = {**attributes, "language": languages[index]}
+
             entity = token.spec.raw_type(
                 offset=offset,
                 length=0,
-                **token.spec.raw_arguments(token.attributes),
+                **token.spec.raw_arguments(attributes),
             )
             closing[end_index] = entity
             entities.append(entity)
             continue
 
-        parts.append(token.text)
-        offset += len(token.text)
+        text = token.source if isinstance(token, MarkupToken) else token.text
+        parts.append(text)
+        offset += len(text)
 
     return ParsedMarkup(
         message="".join(parts),
@@ -233,11 +309,7 @@ class HTML:
         self.client = client
 
     async def parse(self, text: str) -> dict:
-        parser = Parser()
-        parser.feed(utils.add_surrogates(text))
-        parser.close()
-
-        parsed = _build(parser.tokens)
+        parsed = _build(Parser().tokenize(utils.add_surrogates(text)))
         entities = []
 
         for entity in parsed.entities:
@@ -259,7 +331,7 @@ class HTML:
         }
 
     @staticmethod
-    def unparse(text: str, *, entities: list[types.MessageEntity]) -> str:
+    def unparse(text: str, entities: list[types.MessageEntity]) -> str:
         ordered = sorted(entities, key=lambda entity: (entity.offset, -entity.length))
         insertions: list[Insertion] = []
 
