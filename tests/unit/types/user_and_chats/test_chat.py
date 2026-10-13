@@ -54,3 +54,33 @@ async def test_parse_chat_maps_only_a_full_emoji_status(
     chat = await types.Chat._parse_chat(None, user)
 
     assert getattr(chat.emoji_status, "custom_emoji_id", None) == expected
+
+
+@pytest.mark.parametrize(
+    ("emoji_status", "expected"),
+    [
+        pytest.param(raw.types.EmojiStatusEmpty(), None, id="empty"),
+        pytest.param(raw.types.EmojiStatus(document_id=5), "5", id="custom-emoji"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_parse_chat_maps_only_a_full_channel_emoji_status(
+    emoji_status: raw.base.EmojiStatus,
+    *,
+    expected: str | None,
+) -> None:
+    channel = raw.types.Channel(
+        id=7,
+        title="Channel 7",
+        photo=raw.types.ChatPhotoEmpty(),
+        date=0,
+        broadcast=True,
+        access_hash=1,
+        usernames=[],
+        restriction_reason=[],
+        emoji_status=emoji_status,
+    )
+
+    chat = await types.Chat._parse_chat(None, channel)
+
+    assert getattr(chat.emoji_status, "custom_emoji_id", None) == expected

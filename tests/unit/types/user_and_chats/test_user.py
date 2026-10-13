@@ -81,3 +81,30 @@ def test_pickling_a_link_preserves_its_url_text_and_style(protocol: int) -> None
 async def test_parse_raises_on_user_empty() -> None:
     with pytest.raises(EmptyObjectError, match="UserEmpty"):
         await types.User._parse(None, raw.types.UserEmpty(id=7))
+
+
+@pytest.mark.parametrize(
+    ("emoji_status", "expected"),
+    [
+        pytest.param(raw.types.EmojiStatusEmpty(), None, id="empty"),
+        pytest.param(raw.types.EmojiStatus(document_id=5), "5", id="custom-emoji"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_parse_maps_only_a_full_emoji_status(
+    emoji_status: raw.base.EmojiStatus,
+    *,
+    expected: str | None,
+) -> None:
+    # `EmojiStatus._parse()` reads `document_id`, which `emojiStatusEmpty` does not carry.
+    user = raw.types.User(
+        id=7,
+        first_name="User 7",
+        usernames=[],
+        restriction_reason=[],
+        emoji_status=emoji_status,
+    )
+
+    parsed = await types.User._parse(None, user)
+
+    assert getattr(parsed.emoji_status, "custom_emoji_id", None) == expected
