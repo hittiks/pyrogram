@@ -76,8 +76,11 @@ SPHINX_ARGS := -b dirhtml "docs/source" "docs/build/html" -j auto -W --keep-goin
 docs-api:
 	cd compiler/docs && $(PYTHON) compiler.py
 
+# `-E` re-reads every page. Without it a rerun skips the unchanged hand-written pages, does not
+#  repeat their warnings, and passes. `docs-serve` stays incremental, which is its point.
+#  https://github.com/sphinx-doc/sphinx/blob/cc7c6f435ad37bb12264f8118c8461b230e6830c/doc/man/sphinx-build.rst?plain=1#L97-L101
 docs: docs-api
-	$(UV) run --group docs sphinx-build $(SPHINX_ARGS)
+	$(UV) run --group docs sphinx-build -E $(SPHINX_ARGS)
 
 # `sphinx-autobuild` runs that same build, then rebuilds only the pages an edit touched and
 #  reloads the browser, so a docs change costs seconds where `docs` costs minutes.
