@@ -41,7 +41,6 @@ from .get_bot_name import GetBotName
 from .get_chat_menu_button import GetChatMenuButton
 from .get_game_high_scores import GetGameHighScores
 from .get_inline_bot_results import GetInlineBotResults
-from .get_inline_game_high_scores import GetInlineGameHighScores
 from .get_managed_bot_access_settings import GetManagedBotAccessSettings
 from .get_managed_bot_token import GetManagedBotToken
 from .get_owned_bots import GetOwnedBots
@@ -59,7 +58,6 @@ from .set_bot_info_short_description import SetBotInfoShortDescription
 from .set_bot_name import SetBotName
 from .set_chat_menu_button import SetChatMenuButton
 from .set_game_score import SetGameScore
-from .set_inline_game_score import SetInlineGameScore
 from .set_managed_bot_access_settings import SetManagedBotAccessSettings
 
 
@@ -81,9 +79,7 @@ class Bots(
     SendInvoice,
     SendGame,
     SetGameScore,
-    SetInlineGameScore,
     GetGameHighScores,
-    GetInlineGameHighScores,
     SetBotCommands,
     GetBotCommands,
     DeleteBotCommands,

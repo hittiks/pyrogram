@@ -16,6 +16,7 @@
 #  You should have received a copy of the GNU Lesser General Public License
 #  along with Pyrogram.  If not, see <http://www.gnu.org/licenses/>.
 
+
 from __future__ import annotations as _annotations
 
 import base64
@@ -23,8 +24,8 @@ import struct
 from typing import Final
 
 from pyrogram import raw
-from pyrogram.methods.bots.get_inline_game_high_scores import GetInlineGameHighScores
-from pyrogram.methods.bots.set_inline_game_score import SetInlineGameScore
+from pyrogram.methods.bots.get_game_high_scores import GetGameHighScores
+from pyrogram.methods.bots.set_game_score import SetGameScore
 
 INLINE_MESSAGE_DC_ID: Final[int] = 4
 
@@ -40,42 +41,62 @@ RAW_INLINE_MESSAGE_ID: Final[raw.types.InputBotInlineMessageID] = raw.types.Inpu
     access_hash=7,
 )
 
+# Not the `Session.SLEEP_THRESHOLD` default, so a query sent without the client's own value shows.
+CLIENT_SLEEP_THRESHOLD: Final[float] = 42
+
 
 class FakeSession:
-    """Records the wire bytes of every query sent through it and answers with a canned response.
+    """Records the wire bytes and flood wait threshold of every query sent through it.
 
     Bytes, because `TLObject.__eq__` never compares the type: `InputUserSelf() == InputUser(user_id=7,
     access_hash=0)` is `True`, so a query-to-query assert passes with the user dropped.
     """
 
     def __init__(self, response: raw.core.TLObject | bool) -> None:
-        self.response = response
-        self.sent: list[bytes] = []
+        self._response = response
+        self._sent: list[tuple[bytes, float | None]] = []
+
+    @property
+    def sent(self) -> list[tuple[bytes, float | None]]:
+        return self._sent
 
     async def invoke(
         self,
         query: raw.core.TLObject,
-        *,
-        sleep_threshold: float,
+        sleep_threshold: float | None = None,
     ) -> raw.core.TLObject | bool:
-        self.sent.append(query.write())
+        self._sent.append((query.write(), sleep_threshold))
 
-        return self.response
+        return self._response
 
 
-class InlineGameClient(SetInlineGameScore, GetInlineGameHighScores):
-    """A client whose only session is a `FakeSession`, recording which DC was asked for."""
+class GameClient(SetGameScore, GetGameHighScores):
+    """A client whose sessions are one `FakeSession`, recording which sessions were asked for.
 
-    sleep_threshold: float = 10
+    `invoke` stands for the main session and goes through the same `FakeSession`.
+    """
+
+    sleep_threshold: float = CLIENT_SLEEP_THRESHOLD
 
     def __init__(self, response: raw.core.TLObject | bool) -> None:
-        self.session = FakeSession(response)
-        self.requested_dc_ids: list[int] = []
+        self._session = FakeSession(response)
+        self._requested_sessions: list[tuple[int, bool]] = []
+
+    @property
+    def session(self) -> FakeSession:
+        return self._session
+
+    @property
+    def requested_sessions(self) -> list[tuple[int, bool]]:
+        return self._requested_sessions
 
     async def get_session(self, dc_id: int, *, is_media: bool) -> FakeSession:
-        self.requested_dc_ids.append(dc_id)
+        self._requested_sessions.append((dc_id, is_media))
 
-        return self.session
+        return self._session
+
+    async def invoke(self, query: raw.core.TLObject) -> raw.core.TLObject | bool:
+        return await self._session.invoke(query)
 
     async def resolve_peer(self, peer_id: int | str) -> raw.types.InputUser:
         return raw.types.InputUser(
