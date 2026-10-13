@@ -102,3 +102,78 @@ async def test_a_channel_among_recent_voters_is_parsed_as_a_channel() -> None:
         enums.ChatType.PRIVATE,
         enums.ChatType.CHANNEL,
     ]
+
+
+@pytest.mark.asyncio
+async def test_a_channel_sharing_its_raw_id_with_a_user_is_still_parsed_as_the_channel() -> None:
+    # User, chat and channel ids overlap, so a lookup by raw id alone picks the wrong entity.
+    #  https://core.telegram.org/api/peers
+    poll = raw.types.MessageMediaPoll(
+        poll=raw.types.Poll(
+            id=1,
+            question=raw.types.TextWithEntities(
+                text="Question",
+                entities=[],
+            ),
+            answers=[
+                raw.types.PollAnswer(
+                    text=raw.types.TextWithEntities(
+                        text="Answer",
+                        entities=[],
+                    ),
+                    option=b"0",
+                    added_by=raw.types.PeerUser(user_id=_CHANNEL_ID),
+                ),
+            ],
+            hash=0,
+        ),
+        results=raw.types.PollResults(
+            results=[
+                raw.types.PollAnswerVoters(
+                    option=b"0",
+                    voters=1,
+                    recent_voters=[raw.types.PeerChannel(channel_id=_CHANNEL_ID)],
+                ),
+            ],
+            total_voters=1,
+            recent_voters=[],
+        ),
+    )
+    user = raw.types.User(
+        id=_CHANNEL_ID,
+        first_name="User",
+        usernames=[],
+        restriction_reason=[],
+    )
+    channel = raw.types.Channel(
+        id=_CHANNEL_ID,
+        title="Channel",
+        photo=raw.types.ChatPhotoEmpty(),
+        date=0,
+        broadcast=True,
+        access_hash=1,
+        usernames=[],
+        restriction_reason=[],
+    )
+    client = pyrogram.Client(
+        "test",
+        api_id=1,
+        api_hash="0" * 32,
+        in_memory=True,
+    )
+
+    parsed = await types.Poll._parse(
+        client,
+        poll,
+        users={_CHANNEL_ID: user},
+        chats={_CHANNEL_ID: channel},
+    )
+
+    option = parsed.options[0]
+
+    assert option.recent_voters is not None
+    assert [voter.type for voter in option.recent_voters] == [enums.ChatType.CHANNEL]
+
+    assert option.added_by_user is not None
+    assert option.added_by_user.id == _CHANNEL_ID
+    assert option.added_by_chat is None

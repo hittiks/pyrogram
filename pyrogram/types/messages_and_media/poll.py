@@ -188,8 +188,17 @@ class Poll(Object, Update):
                 if result.correct:
                     correct_option_ids.append(i)
 
-            raw_added_by_user = users.get(utils.get_raw_peer_id(answer.added_by))
-            raw_added_by_chat = chats.get(utils.get_raw_peer_id(answer.added_by))
+            # User, chat and channel ids overlap, so the peer type picks the map to look in.
+            #  https://core.telegram.org/api/peers
+            raw_added_by = (
+                types.Chat._find_peer_chat(
+                    answer.added_by,
+                    users=users,
+                    chats=chats,
+                )
+                if answer.added_by is not None
+                else None
+            )
 
             options.append(
                 types.PollOption(
@@ -208,19 +217,22 @@ class Poll(Object, Update):
                             if raw_voter is not None
                             else None
                             for raw_voter in (
-                                users.get(utils.get_raw_peer_id(voter_peer))
-                                or chats.get(utils.get_raw_peer_id(voter_peer))
+                                types.Chat._find_peer_chat(
+                                    voter_peer,
+                                    users=users,
+                                    chats=chats,
+                                )
                                 for voter_peer in result.recent_voters
                             )
                         ]
                     )
                     if result and result.recent_voters
                     else None,
-                    added_by_user=await types.User._parse(client, raw_added_by_user)
-                    if raw_added_by_user is not None
+                    added_by_user=await types.User._parse(client, raw_added_by)
+                    if isinstance(raw_added_by, raw.base.User)
                     else None,
-                    added_by_chat=await types.Chat._parse_chat(client, raw_added_by_chat)
-                    if raw_added_by_chat is not None
+                    added_by_chat=await types.Chat._parse_chat(client, raw_added_by)
+                    if isinstance(raw_added_by, raw.base.Chat)
                     else None,
                     addition_date=utils.datetime_to_timestamp(getattr(answer, "date", None)),
                     client=client,
