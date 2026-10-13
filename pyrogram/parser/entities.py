@@ -62,12 +62,15 @@ class InsertionKind(IntEnum):
     A line marker goes first: a close written before `> ` would start the line with
     its delimiter, and `**> ` read back is an expandable quote. A close goes before
     an open so that two entities touching at one offset close and reopen rather
-    than cross.
+    than cross. The end marker of an expandable quote goes last, since `parse` only
+    reads `||` as one at the very end of the line: written before the close of a
+    bold that ends with the quote, the quote ran on to the end of the message.
     """
 
     MARKER = 0
     CLOSE = 1
     OPEN = 2
+    END = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -230,7 +233,7 @@ class BlockquoteSpec(EntitySpec):
                 Insertion(
                     text=BLOCKQUOTE_EXPANDABLE_END,
                     offset=end,
-                    kind=InsertionKind.CLOSE,
+                    kind=InsertionKind.END,
                 )
             )
 

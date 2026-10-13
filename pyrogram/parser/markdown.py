@@ -41,6 +41,7 @@ from pyrogram.enums import MessageEntityType
 
 from . import utils
 from .entities import (
+    BLOCKQUOTE,
     BLOCKQUOTE_EXPANDABLE_END,
     BLOCKQUOTE_EXPANDABLE_MARKER,
     BLOCKQUOTE_MARKER,
@@ -63,31 +64,41 @@ from .html import HTML
 _DELIMITER_PATTERN: Final[str] = "|".join(re.escape(delimiter) for delimiter in MARKDOWN_DELIMITERS)
 
 
-def _markdown_re(escapable: str) -> re.Pattern[str]:
-    return re.compile(
-        rf"\\(?P<escaped>[{re.escape(escapable)}])"
-        rf"|(?P<delimiter>{_DELIMITER_PATTERN})"
-        # A label ends at the first unescaped `]`, a url at the first unescaped `)`; an
-        #  escaped pair passes through whole, so a `\]` or `\)` written by `unparse` stays
-        #  inside instead of closing early.
-        r"|(?P<image>!?)\[(?P<label>(?:\\.|[^\\\]\n])+?)\]\((?P<url>(?:\\.|[^\\)\n])+?)\)"
-    )
+# A label ends at the first unescaped `]`, a url at the first unescaped `)`; an escaped
+#  pair passes through whole, so a `\]` or `\)` written by `unparse` stays inside instead
+#  of closing early. A label may span lines, as the text of a link can, and holds a code
+#  run whole, so `list[int]` as code in a link is not cut at its `]`.
+_LINK_PATTERN: Final[str] = (
+    r"(?P<image>!?)\[(?P<label>(?:\\.|`[^`]+`|[^\\\]])+?)\]\((?P<url>(?:\\.|[^\\)\n])+?)\)"
+)
+
+
+def _markdown_re(escapable: str, *, links: bool) -> re.Pattern[str]:
+    pattern = rf"\\(?P<escaped>[{re.escape(escapable)}])|(?P<delimiter>{_DELIMITER_PATTERN})"
+
+    return re.compile(f"{pattern}|{_LINK_PATTERN}" if links else pattern)
 
 
 # Only ASCII punctuation can be escaped, as in CommonMark, so that the backslashes of
 #  `C:\Users` or `\d+` reach the message instead of being eaten.
 #  https://spec.commonmark.org/0.31.2/#backslash-escapes
-MARKDOWN_RE: Final[re.Pattern[str]] = _markdown_re(string.punctuation)
+MARKDOWN_RE: Final[re.Pattern[str]] = _markdown_re(
+    string.punctuation,
+    links=True,
+)
 
 # Inside a fixed-width run no backslash escapes a backtick, so `C:\` in backticks is code
 #  ending in a backslash, as in CommonMark. The other escapes are still matched there,
-#  so that `_convert_inline` writes an escaped `<` as a character reference.
+#  so that `_convert_inline` writes an escaped `<` as a character reference. A link is
+#  text there, and is not matched at all: a `[` in code made a label that ran past the
+#  closing backtick into a later link, and the code then never closed.
 _FIXED_WIDTH_RE: Final[re.Pattern[str]] = _markdown_re(
     "".join(
         character
         for character in string.punctuation
         if character not in "".join(FIXED_WIDTH_DELIMITERS)
-    )
+    ),
+    links=False,
 )
 
 # One escape pair, capturing the character it protects; as in `MARKDOWN_RE`, only ASCII
@@ -127,16 +138,22 @@ def _escape_chunk(chunk: str, *, line_prefix: str, following: str) -> str:
 
     # A single trailing pairable character merges with the delimiter written right
     #  after it: `a*` before a `**` close becomes `***`, and the pair then closes one
-    #  character early.
+    #  character early. A run is escaped already, so the chunk decides: the escaped
+    #  string can end in `\-` where an escaped backslash leaves the `-` bare.
     trailing = chunk[-1:]
 
     if (
         trailing
         and trailing in _PAIRABLE_CHARS
         and trailing == following[:1]
-        and not escaped.endswith(f"\\{trailing}")
+        and chunk[-2:-1] != trailing
     ):
         escaped = f"{escaped[:-1]}\\{trailing}"
+
+    # A `!` right before the `[` of a link turns it into `![`, which `parse` reads as an
+    #  emoji or a time link, and keeps as text when the url is neither.
+    if following.startswith("[") and escaped.endswith("!"):
+        escaped = f"{escaped[:-1]}\\!"
 
     return escaped
 
@@ -175,6 +192,14 @@ def _place(insertion: Insertion, *, length: int, index: int) -> _PlacedInsertion
         arrival=index,
         insertion=insertion,
     )
+
+
+def _inside(insertion: Insertion, *, span: range) -> bool:
+    """Whether the insertion lands inside the span, an open at its start and a close at its end."""
+    if insertion.kind is InsertionKind.OPEN:
+        return insertion.offset in span
+
+    return span.start < insertion.offset <= span.stop
 
 
 def _advance_line_prefix(prefix: str, *, piece: str) -> str:
@@ -339,10 +364,10 @@ def _scan(text: str) -> list[re.Match[str]]:
 
 
 def _pair(matches: list[re.Match[str]]) -> tuple[dict[int, int], set[int]]:
-    """Which delimiters pair, and which links and escapes sit inside a fixed-width run.
+    """Which delimiters pair, and which escapes sit inside a fixed-width run.
 
-    Anything inside a fixed-width run is left alone: a link stays text, and an escape keeps
-    its backslash, since escapes do not work in code, as in CommonMark.
+    Anything inside a fixed-width run is left alone: `_FIXED_WIDTH_RE` matches no link, and
+    an escape keeps its backslash, since escapes do not work in code, as in CommonMark.
     https://spec.commonmark.org/0.31.2/#backslash-escapes
     `_scan` keeps only the fixed-width delimiters that open or close a run.
     """
@@ -488,11 +513,6 @@ def _convert_inline(text: str) -> str:
 
         delimiter = _delimiter(match)
 
-        if delimiter is None and index in literal:
-            parts.append(chunk)
-            parts.append(match.group(0))
-            continue
-
         if delimiter is None:
             # The label may itself carry markup, so it goes through this same pass; the
             #  url is text, so its escape pairs just drop their backslashes.
@@ -583,6 +603,15 @@ class Markdown:
             if spec_for_type(entity.type) in {CODE, PRE}
         ]
 
+        # A fence writes line breaks the message does not have; inside a quote each one
+        #  starts a line that needs the marker too, or `parse` ends the quote there and
+        #  the rest of it reaches the message as a literal `<blockquote>`.
+        quotes = [
+            range(entity.offset, entity.offset + entity.length)
+            for entity in entities
+            if spec_for_type(entity.type) is BLOCKQUOTE
+        ]
+
         parts: list[str] = []
         written: int = 0
         line_prefix: str = ""
@@ -590,18 +619,22 @@ class Markdown:
         for item in sorted(placed):
             insertion = item.insertion
             chunk = text[written : insertion.offset]
+            markup = insertion.text
+
+            if "\n" in markup and any(_inside(insertion, span=span) for span in quotes):
+                markup = markup.replace("\n", f"\n{BLOCKQUOTE_MARKER} ")
 
             if not any(written in span for span in fixed_width):
                 chunk = _escape_chunk(
                     chunk,
                     line_prefix=line_prefix,
-                    following=insertion.text,
+                    following=markup,
                 )
 
             parts.append(chunk)
-            parts.append(insertion.text)
+            parts.append(markup)
 
-            line_prefix = _advance_line_prefix(line_prefix, piece=f"{chunk}{insertion.text}")
+            line_prefix = _advance_line_prefix(line_prefix, piece=f"{chunk}{markup}")
             written = insertion.offset
 
         parts.append(
