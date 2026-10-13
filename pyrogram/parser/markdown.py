@@ -159,12 +159,14 @@ def _wrap_blockquotes(text: str, *, strict: bool) -> str:
 
 
 def _pair(matches: list[re.Match[str]]) -> tuple[dict[int, int], set[int]]:
-    """Which delimiters pair, and which links sit inside a fixed-width run.
+    """Which delimiters pair, and which links and escapes sit inside a fixed-width run.
 
-    Anything inside a fixed-width run is left alone, links included: those stay text.
+    Anything inside a fixed-width run is left alone: a link stays text, and an escape keeps
+    its backslash, since escapes do not work in code, as in CommonMark.
+    https://spec.commonmark.org/0.31.2/#backslash-escapes
     """
     closes: dict[int, int] = {}
-    literal_links: set[int] = set()
+    literal: set[int] = set()
     opened: dict[str, int] = {}
     fixed_width: str | None = None
 
@@ -183,8 +185,8 @@ def _pair(matches: list[re.Match[str]]) -> tuple[dict[int, int], set[int]]:
                 closes[opened.pop(delimiter)] = index
                 fixed_width = None
 
-            elif match.group("label") is not None:
-                literal_links.add(index)
+            elif delimiter is None:
+                literal.add(index)
 
             continue
 
@@ -203,7 +205,7 @@ def _pair(matches: list[re.Match[str]]) -> tuple[dict[int, int], set[int]]:
 
         opened[delimiter] = index
 
-    return closes, literal_links
+    return closes, literal
 
 
 def _link_markup(label: str, *, url: str, image: bool) -> str | None:
@@ -274,7 +276,7 @@ def _delimiter_entity(spec: EntitySpec, *, language: str) -> types.MessageEntity
 def _convert_inline(text: str) -> str:
     """Delimiters and links become HTML tags. Everything unpaired stays as it was typed."""
     matches = list(MARKDOWN_RE.finditer(text))
-    pairs, literal_links = _pair(matches)
+    pairs, literal = _pair(matches)
     closings: dict[int, str] = {}
 
     parts: list[str] = []
@@ -290,15 +292,19 @@ def _convert_inline(text: str) -> str:
         escaped = match.group("escaped")
 
         if escaped is not None:
+            parts.append(chunk)
+
+            if index in literal:
+                parts.append("\\")
+
             # As a character reference, so that an escaped `<` or `&` cannot be read as
             #  markup by the HTML pass that follows.
-            parts.append(chunk)
             parts.append(f"&#{ord(escaped)};")
             continue
 
         delimiter = match.group("delimiter")
 
-        if delimiter is None and index in literal_links:
+        if delimiter is None and index in literal:
             parts.append(chunk)
             parts.append(match.group(0))
             continue

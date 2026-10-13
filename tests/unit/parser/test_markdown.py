@@ -18,6 +18,8 @@
 
 from __future__ import annotations as _annotations
 
+import pytest
+
 import pyrogram
 from pyrogram.parser.markdown import Markdown
 
@@ -513,6 +515,38 @@ async def test_markdown_parse_keeps_a_link_inside_a_fence_as_text() -> None:
     parsed = await Markdown(None).parse("```\n[a](http://x)\n```")
 
     assert parsed["message"] == "[a](http://x)"
+    assert [repr(entity) for entity in parsed["entities"]] == [repr(expected)]
+
+
+@pytest.mark.parametrize(
+    "strict",
+    [
+        pytest.param(False, id="default"),
+        pytest.param(True, id="strict"),
+    ],
+)
+async def test_markdown_parse_keeps_the_backslashes_inside_code(strict: bool) -> None:
+    expected = pyrogram.raw.types.MessageEntityCode(
+        offset=0,
+        length=11,
+    )
+
+    parsed = await Markdown(None).parse(r"`\d+\.\<b>\\`", strict=strict)
+
+    assert parsed["message"] == r"\d+\.\<b>\\"
+    assert [repr(entity) for entity in parsed["entities"]] == [repr(expected)]
+
+
+async def test_markdown_parse_keeps_the_backslashes_inside_a_fence() -> None:
+    expected = pyrogram.raw.types.MessageEntityPre(
+        offset=0,
+        length=11,
+        language="python",
+    )
+
+    parsed = await Markdown(None).parse('```python\nprint("\\"")\n```')
+
+    assert parsed["message"] == 'print("\\"")'
     assert [repr(entity) for entity in parsed["entities"]] == [repr(expected)]
 
 
