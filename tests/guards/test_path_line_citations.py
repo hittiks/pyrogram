@@ -102,6 +102,9 @@ def test_the_sweep_reads_both_halves_of_what_it_asks() -> None:
     assert path_line_citations("x = 1  # see `pyrogram/session/session.py:728`.\n") == [1]
     assert path_line_citations("# the markers are mapped in `conftest.py:37`\n") == [1]
 
+    # The failure names the line of the comment, so a citation below the first line is pinned.
+    assert path_line_citations("x = 1\n\n# see `conftest.py:37`\n") == [3]
+
     assert (
         path_line_citations("# `keyboardButtonStyle` in `compiler/api/source/main_api.tl`\n") == []
     )
