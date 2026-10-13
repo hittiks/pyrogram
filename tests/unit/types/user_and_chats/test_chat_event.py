@@ -152,6 +152,31 @@ _ADMIN: Final[raw.types.User] = raw.types.User(
             id="approver-not-in-users",
         ),
         pytest.param(
+            raw.types.ChannelAdminLogEventActionExportedInviteEdit(
+                prev_invite=raw.types.ChatInvitePublicJoinRequests(),
+                new_invite=raw.types.ChatInvitePublicJoinRequests(),
+            ),
+            {
+                "invite_link_edited.old_invite_link": None,
+                "invite_link_edited.new_invite_link": None,
+            },
+            id="public-request-link-edited",
+        ),
+        pytest.param(
+            raw.types.ChannelAdminLogEventActionExportedInviteRevoke(
+                invite=raw.types.ChatInvitePublicJoinRequests(),
+            ),
+            {"invite_link_revoked.invite_link": None},
+            id="public-request-link-revoked",
+        ),
+        pytest.param(
+            raw.types.ChannelAdminLogEventActionExportedInviteDelete(
+                invite=raw.types.ChatInvitePublicJoinRequests(),
+            ),
+            {"invite_link_deleted.invite_link": None},
+            id="public-request-link-deleted",
+        ),
+        pytest.param(
             raw.types.ChannelAdminLogEventActionParticipantVolume(
                 participant=raw.types.GroupCallParticipant(
                     peer=raw.types.PeerUser(user_id=_ABSENT_ID),
