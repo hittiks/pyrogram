@@ -29,7 +29,7 @@ The tags themselves live in `entities.py`, once. https://core.telegram.org/bots/
 from __future__ import annotations as _annotations
 
 import html
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from html.parser import HTMLParser
 from typing import TypeAlias
 
@@ -83,19 +83,9 @@ class Parser(HTMLParser):
 
         self.tokens: list[TokenType] = []
 
-        # One entry per open `code` tag, saying whether it was folded into a `pre`.
-        self.code_folded: list[bool] = []
-
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         # A valueless attribute such as the `expandable` of a blockquote parses as `None`.
         attributes = {name: value or "" for name, value in attrs}
-
-        if tag == "code":
-            folded = self._fold_into_pre(attributes)
-            self.code_folded.append(folded)
-
-            if folded:
-                return
 
         self.tokens.append(
             StartToken(
@@ -106,30 +96,7 @@ class Parser(HTMLParser):
             )
         )
 
-    def _fold_into_pre(self, attributes: dict[str, str]) -> bool:
-        """Whether this `code` tag is the language of the `pre` it opens, and was folded in.
-
-        `<pre><code class="language-python">` is one `pre` entity carrying a language, and is
-        the only way the Bot API spells one. The two tags have to be adjacent, as they are in
-        everything Telegram writes. https://core.telegram.org/bots/api#html-style
-        """
-        previous = self.tokens[-1] if self.tokens else None
-
-        if not isinstance(previous, StartToken) or previous.tag != "pre":
-            return False
-
-        language = attributes.get("class", "").removeprefix("language-")
-        self.tokens[-1] = replace(
-            previous,
-            attributes={**previous.attributes, "language": language},
-        )
-
-        return True
-
     def handle_endtag(self, tag: str) -> None:
-        if tag == "code" and self.code_folded and self.code_folded.pop():
-            return
-
         self.tokens.append(
             EndToken(
                 tag=tag,
@@ -185,9 +152,45 @@ def _pair(tokens: list[TokenType]) -> dict[int, int]:
     return pairs
 
 
+def _fold_code_into_pre(
+    tokens: list[TokenType],
+    *,
+    pairs: dict[int, int],
+) -> tuple[dict[int, str], set[int]]:
+    """The language of every `pre` that a `code` pair fills exactly, and those `code` tags.
+
+    `<pre><code class="language-python">` is one `pre` entity carrying a language, and is
+    the only way the Bot API spells one. Telegram folds the two only when they cover the
+    same text, so both pairs have to be adjacent: https://github.com/tdlib/td/blob/c15d3f5a5de6e3ba5839822c451152e5e18bb700/td/telegram/MessageEntity.cpp#L3600-L3617
+    Run after `_pair`, so that an unclosed `pre` keeps its `code` pair.
+    """
+    languages: dict[int, str] = {}
+    folded: set[int] = set()
+
+    for start, end in pairs.items():
+        pre = tokens[start]
+        code = tokens[start + 1]
+
+        if not isinstance(pre, StartToken) or pre.tag != "pre":
+            continue
+
+        if (
+            not isinstance(code, StartToken)
+            or code.tag != "code"
+            or pairs.get(start + 1) != end - 1
+        ):
+            continue
+
+        languages[start] = code.attributes.get("class", "").removeprefix("language-")
+        folded.update((start + 1, end - 1))
+
+    return languages, folded
+
+
 def _build(tokens: list[TokenType]) -> ParsedMarkup:
     """The message text and its entities, in one left-to-right sweep."""
     pairs = _pair(tokens)
+    languages, folded = _fold_code_into_pre(tokens, pairs=pairs)
     closing: dict[int, raw.base.MessageEntity] = {}
 
     parts: list[str] = []
@@ -195,6 +198,9 @@ def _build(tokens: list[TokenType]) -> ParsedMarkup:
     entities: list[raw.base.MessageEntity] = []
 
     for index, token in enumerate(tokens):
+        if index in folded:
+            continue
+
         if isinstance(token, EndToken):
             entity = closing.pop(index, None)
 
@@ -214,10 +220,15 @@ def _build(tokens: list[TokenType]) -> ParsedMarkup:
                 offset += len(token.source)
                 continue
 
+            attributes = token.attributes
+
+            if index in languages:
+                attributes = {**attributes, "language": languages[index]}
+
             entity = token.spec.raw_type(
                 offset=offset,
                 length=0,
-                **token.spec.raw_arguments(token.attributes),
+                **token.spec.raw_arguments(attributes),
             )
             closing[end_index] = entity
             entities.append(entity)

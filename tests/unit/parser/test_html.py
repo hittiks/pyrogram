@@ -378,6 +378,37 @@ async def test_html_parse_code_outside_a_pre_stays_code() -> None:
     assert [repr(entity) for entity in parsed["entities"]] == [repr(expected)]
 
 
+async def test_html_parse_unclosed_pre_keeps_its_code() -> None:
+    expected = pyrogram.raw.types.MessageEntityCode(
+        offset=5,
+        length=3,
+    )
+
+    parsed = await HTML(None).parse('<pre><code class="language-python">x=1</code>')
+
+    assert parsed["message"] == "<pre>x=1"
+    assert [repr(entity) for entity in parsed["entities"]] == [repr(expected)]
+
+
+async def test_html_parse_code_covering_part_of_a_pre_is_not_its_language() -> None:
+    expected = [
+        pyrogram.raw.types.MessageEntityPre(
+            offset=0,
+            length=4,
+            language="",
+        ),
+        pyrogram.raw.types.MessageEntityCode(
+            offset=0,
+            length=3,
+        ),
+    ]
+
+    parsed = await HTML(None).parse('<pre><code class="language-python">x=1</code>;</pre>')
+
+    assert parsed["message"] == "x=1;"
+    assert [repr(entity) for entity in parsed["entities"]] == [repr(entity) for entity in expected]
+
+
 async def test_html_parse_expandable_blockquote() -> None:
     expected = pyrogram.raw.types.MessageEntityBlockquote(
         offset=0,
