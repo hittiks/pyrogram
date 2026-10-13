@@ -64,8 +64,6 @@ class Reaction(Object):
         self.chosen_order = chosen_order
         self.is_paid = is_paid
 
-    # `None` input and `ReactionEmpty` both mean "no reaction", so the optional
-    #  contract is the real one: `StoryView` already passes a maybe-missing value.
     @staticmethod
     def _parse(client: pyrogram.Client, reaction: raw.base.Reaction) -> Reaction:
         if isinstance(reaction, raw.types.ReactionEmoji):
