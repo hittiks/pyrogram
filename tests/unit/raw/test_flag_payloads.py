@@ -94,7 +94,6 @@ def _record(*, video_portrait: bool | None) -> raw.functions.phone.ToggleGroupCa
 @pytest.mark.parametrize(
     ("sent", "expected"),
     [
-        # Went out 8 bytes too long and the server answered `400 INPUT_REQUEST_TOO_LONG`.
         pytest.param(
             _search(saved_reaction=[]),
             _search(saved_reaction=[]),
@@ -128,6 +127,14 @@ def test_written_flags_read_back_whole(sent: TLObject, *, expected: TLObject) ->
     assert written == expected.write()
     assert TLObject.read(buffer) == expected
     assert buffer.read() == b""
+
+
+def test_an_empty_lone_vector_writes_the_same_bytes_as_none() -> None:
+    """The 8 bytes of `[]` made the server answer `400 INPUT_REQUEST_TOO_LONG`.
+
+    The round trip above stays green if `[]` sets the bit and the empty vector is written.
+    """
+    assert _search(saved_reaction=[]).write() == _search(saved_reaction=None).write()
 
 
 def test_an_object_missing_under_a_bit_its_sibling_set_is_refused() -> None:
