@@ -321,3 +321,29 @@ async def test_the_sender_is_looked_up_by_its_own_peer_type(
         parsed.from_user.id if parsed.from_user else None,
         parsed.sender_chat.type if parsed.sender_chat else None,
     ) == expected
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [
+        pytest.param("message", id="message"),
+        pytest.param("service", id="service"),
+        pytest.param("ephemeral", id="ephemeral"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_the_chat_is_the_peer_and_not_the_sender(kind: str) -> None:
+    user = raw.types.User(
+        id=USER_ID,
+        first_name="User",
+        access_hash=0,
+    )
+
+    parsed = await types.Message._parse(
+        client(),
+        raw_message_of_kind(kind, from_id=raw.types.PeerUser(user_id=USER_ID)),
+        users={USER_ID: user},
+        chats={CHANNEL_ID: broadcast_channel()},
+    )
+
+    assert parsed.chat.type == enums.ChatType.CHANNEL
