@@ -28,11 +28,13 @@ class ProximityAlertTriggered(Object):
     """Information about a proximity alert.
 
     Parameters:
-        traveler (:obj:`~pyrogram.types.Chat`, *optional*):
-            User or channel that triggered the proximity alert.
+        traveler (:obj:`~pyrogram.types.Chat`):
+            User or channel that triggered the proximity alert, or ``None`` when the update does
+            not include it.
 
-        watcher (:obj:`~pyrogram.types.Chat`, *optional*):
-            User or channel that subscribed for the proximity alert.
+        watcher (:obj:`~pyrogram.types.Chat`):
+            User or channel that subscribed for the proximity alert, or ``None`` when the update
+            does not include it.
 
         distance (``int``):
             The distance between the two sides, in meters.
