@@ -222,7 +222,9 @@ def get_docstring_arg_type(tl_type: str) -> str:
             return "``bool``"
         else:
             return f"``{tl_type.lower()}``"
-    elif tl_type == "TLObject" or tl_type == "X":
+    # `Object` is the schema's spelling of any TL object (`rpc_result`'s `result:Object`), the
+    #  field `get_type_hint` annotates `TLObject`; no constructor declares a field `TLObject`.
+    elif tl_type in ("Object", "X"):
         return "Any object from :obj:`~pyrogram.raw.types`"
     elif tl_type == "!X":
         return "Any function from :obj:`~pyrogram.raw.functions`"
