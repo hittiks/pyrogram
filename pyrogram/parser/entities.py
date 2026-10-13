@@ -254,8 +254,10 @@ class TextLinkSpec(EntitySpec):
         return "["
 
     def markdown_close(self, entity: types.MessageEntity) -> str:
-        # A `)` in the url would end the link early on the way back through `parse`.
-        url = entity.url.replace("\\", "\\\\").replace(")", "\\)")
+        # A `)` in the url would end the link early on the way back through `parse`. An
+        #  entity built without a url writes an empty one, as `html_open` does, rather
+        #  than raise `AttributeError` on `None`.
+        url = (entity.url or "").replace("\\", "\\\\").replace(")", "\\)")
 
         return f"]({url})"
 

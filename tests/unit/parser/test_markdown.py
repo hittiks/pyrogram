@@ -104,6 +104,28 @@ def test_markdown_unparse_url() -> None:
     assert Markdown.unparse(text=text, entities=entities) == expected
 
 
+def test_markdown_unparse_url_left_empty() -> None:
+    # `MessageEntity.url` is optional, and `HTML.unparse` writes an empty `href` for it.
+    expected: str = "[URL]()"
+    text: str = "URL"
+    entities = pyrogram.types.List(
+        [
+            pyrogram.types.MessageEntity(
+                type=pyrogram.enums.MessageEntityType.TEXT_LINK,
+                offset=0,
+                length=3,
+            )
+        ]
+    )
+
+    markup: str = Markdown.unparse(
+        text=text,
+        entities=entities,
+    )
+
+    assert markup == expected
+
+
 def test_markdown_unparse_emoji() -> None:
     expected: str = "![🥲](tg://emoji?id=5195264424893488796) im crying"
     text: str = "🥲 im crying"
