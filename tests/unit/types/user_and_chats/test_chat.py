@@ -31,16 +31,28 @@ _COMMUNITY_CHAT_ID: Final[int] = -1000000000001
 _COMMUNITY: Final[raw.types.Community] = raw.types.Community(
     id=1,
     title="Community",
-    photo=raw.types.ChatPhotoEmpty(),
+    photo=raw.types.ChatPhoto(
+        photo_id=5,
+        dc_id=2,
+    ),
     date=1_700_000_000,
     access_hash=2,
     creator=True,
     min=False,
+    admin_rights=raw.types.ChatAdminRights(change_info=True),
+)
+# File ids of the photo above, as `types.ChatPhoto._parse` encodes them for this community.
+_PARSED_PHOTO: Final[types.ChatPhoto] = types.ChatPhoto(
+    small_file_id="AQADAgADBQAXAgAD_-9aKxf___8CAAseBA",
+    small_photo_unique_id="AgADBQAH",
+    big_file_id="AQADAgADBQAXAwAD_-9aKxf___8CAAseBA",
+    big_photo_unique_id="AgADBQAH",
 )
 _PARSED_COMMUNITY: Final[types.Community] = types.Community(
     id=_COMMUNITY_CHAT_ID,
     have_access=True,
     name="Community",
+    photo=_PARSED_PHOTO,
     date=dt.datetime.fromtimestamp(1_700_000_000),
     status=types.CommunityMemberStatusCreator(),
     raw=_COMMUNITY,
@@ -63,7 +75,9 @@ _COMMUNITY_FORBIDDEN: Final[raw.types.CommunityForbidden] = raw.types.CommunityF
                 type=enums.ChatType.COMMUNITY,
                 is_min=False,
                 is_creator=True,
+                is_admin=True,
                 title="Community",
+                photo=_PARSED_PHOTO,
                 community_id=_COMMUNITY_CHAT_ID,
                 community=_PARSED_COMMUNITY,
                 raw=_COMMUNITY,
@@ -115,6 +129,7 @@ async def test_a_full_community_parses_as_a_community_chat() -> None:
         chat_photo=raw.types.PhotoEmpty(id=0),
         linked_peers=[],
         admins_count=3,
+        kicked_count=4,
     )
 
     parsed = await types.Chat._parse_full(
@@ -131,9 +146,12 @@ async def test_a_full_community_parses_as_a_community_chat() -> None:
         type=enums.ChatType.COMMUNITY,
         is_min=False,
         is_creator=True,
+        is_admin=True,
         title="Community",
+        photo=_PARSED_PHOTO,
         description="About",
         admins_count=3,
+        kicked_count=4,
         community_id=_COMMUNITY_CHAT_ID,
         community=_PARSED_COMMUNITY,
         raw=community_full,
