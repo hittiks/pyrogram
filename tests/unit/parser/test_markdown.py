@@ -879,6 +879,64 @@ _ROUND_TRIP_CORPUS: Final[tuple[pytest.ParameterSet, ...]] = (
         ],
         id="code-at-the-end-of-a-longer-link",
     ),
+    # Listed shorter first, so only the length nests them: by arrival order the bold
+    #  opens outside the link and closes inside it.
+    pytest.param(
+        "ab",
+        [
+            pyrogram.types.MessageEntity(
+                type=pyrogram.enums.MessageEntityType.BOLD,
+                offset=0,
+                length=1,
+            ),
+            pyrogram.types.MessageEntity(
+                type=pyrogram.enums.MessageEntityType.TEXT_LINK,
+                offset=0,
+                length=2,
+                url="https://example.com/",
+            ),
+        ],
+        [
+            pyrogram.raw.types.MessageEntityTextUrl(
+                offset=0,
+                length=2,
+                url="https://example.com/",
+            ),
+            pyrogram.raw.types.MessageEntityBold(
+                offset=0,
+                length=1,
+            ),
+        ],
+        id="bold-at-the-start-of-a-longer-link",
+    ),
+    pytest.param(
+        "ab",
+        [
+            pyrogram.types.MessageEntity(
+                type=pyrogram.enums.MessageEntityType.TEXT_LINK,
+                offset=1,
+                length=1,
+                url="https://example.com/",
+            ),
+            pyrogram.types.MessageEntity(
+                type=pyrogram.enums.MessageEntityType.BOLD,
+                offset=0,
+                length=2,
+            ),
+        ],
+        [
+            pyrogram.raw.types.MessageEntityBold(
+                offset=0,
+                length=2,
+            ),
+            pyrogram.raw.types.MessageEntityTextUrl(
+                offset=1,
+                length=1,
+                url="https://example.com/",
+            ),
+        ],
+        id="link-at-the-end-of-a-longer-bold",
+    ),
     pytest.param(
         "list[int]",
         [
