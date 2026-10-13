@@ -262,7 +262,8 @@ class Story(Object, Update):
         else:
             raise ValueError(f"Invalid peer type: {type(peer)}")
 
-        raw_user = users.get(peer_id)
+        # User and channel ids overlap, so a channel story never looks among the users.
+        raw_user = None if isinstance(peer, utils.PEERS_WITH_A_CHANNEL_ID) else users.get(peer_id)
         from_user = await types.User._parse(client, raw_user) if raw_user is not None else None
         sender_chat = (
             await types.Chat._parse_channel_chat(client, chats[peer_id])
