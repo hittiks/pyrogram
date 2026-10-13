@@ -287,6 +287,12 @@ def test_html_unparse_escapes_a_message_without_entities() -> None:
     )
 
 
+def test_html_unparse_takes_entities_positionally() -> None:
+    entities: list[pyrogram.types.MessageEntity] = []
+
+    assert HTML.unparse("text", entities) == "text"
+
+
 # The parse side. `HTML.parse` needs a client only to resolve a `tg://user` mention,
 #  so `None` is enough for everything below.
 

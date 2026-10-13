@@ -471,6 +471,19 @@ async def test_markdown_parse_escaped_html_tags_stay_text() -> None:
     assert parsed["entities"] is None
 
 
+async def test_markdown_parse_takes_strict_positionally() -> None:
+    parsed = await Markdown(None).parse("<b>x</b>", True)
+
+    assert parsed["message"] == "<b>x</b>"
+    assert parsed["entities"] is None
+
+
+def test_markdown_unparse_takes_entities_positionally() -> None:
+    entities: list[pyrogram.types.MessageEntity] = []
+
+    assert Markdown.unparse("text", entities) == "text"
+
+
 async def test_markdown_parse_escaped_html_characters_in_strict_mode() -> None:
     parsed = await Markdown(None).parse(r"\<\&\>", strict=True)
 

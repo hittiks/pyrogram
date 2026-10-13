@@ -263,7 +263,7 @@ class HTML:
         }
 
     @staticmethod
-    def unparse(text: str, *, entities: list[types.MessageEntity]) -> str:
+    def unparse(text: str, entities: list[types.MessageEntity]) -> str:
         ordered = sorted(entities, key=lambda entity: (entity.offset, -entity.length))
         insertions: list[Insertion] = []
 

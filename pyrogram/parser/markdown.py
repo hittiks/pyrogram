@@ -359,11 +359,11 @@ class Markdown:
     def __init__(self, client: pyrogram.Client | None):
         self.html = HTML(client)
 
-    async def parse(self, text: str, *, strict: bool = False) -> dict:
+    async def parse(self, text: str, strict: bool = False) -> dict:
         return await self.html.parse(_convert_inline(_wrap_blockquotes(text, strict=strict)))
 
     @staticmethod
-    def unparse(text: str, *, entities: list[types.MessageEntity]) -> str:
+    def unparse(text: str, entities: list[types.MessageEntity]) -> str:
         text = utils.add_surrogates(text)
         insertions: list[Insertion] = []
 
