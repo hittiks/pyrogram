@@ -22,7 +22,7 @@ A `path:line` citation is right on the day it is written and wrong after the nex
 that line, with nothing to notice: the suite, `ruff` and `ty` never read comments. When this
 guard was written, one of five such citations had already drifted, `tcp.py:505` pointing at
 the `_connect` signature instead of the `raise` in `send` the comment was about, and the next
-schema update moved the three `main_api.tl` ones as well. A comment names the function or
+schema update moved the four `main_api.tl` ones as well. A comment names the function or
 the TL constructor instead, which is found by a search and does not move.
 
 A permalink is not a citation of this kind: it is pinned to a commit, so its line cannot
