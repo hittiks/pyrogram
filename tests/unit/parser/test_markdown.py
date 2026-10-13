@@ -469,3 +469,40 @@ async def test_markdown_parse_escaped_html_characters_in_strict_mode() -> None:
 
     assert parsed["message"] == "<&>"
     assert parsed["entities"] is None
+
+
+async def test_markdown_parse_keeps_a_link_inside_code_as_text() -> None:
+    expected = pyrogram.raw.types.MessageEntityCode(
+        offset=0,
+        length=13,
+    )
+
+    parsed = await Markdown(None).parse("`[a](http://x)`")
+
+    assert parsed["message"] == "[a](http://x)"
+    assert [repr(entity) for entity in parsed["entities"]] == [repr(expected)]
+
+
+async def test_markdown_parse_keeps_a_link_inside_a_fence_as_text() -> None:
+    expected = pyrogram.raw.types.MessageEntityPre(
+        offset=0,
+        length=13,
+        language="",
+    )
+
+    parsed = await Markdown(None).parse("```\n[a](http://x)\n```")
+
+    assert parsed["message"] == "[a](http://x)"
+    assert [repr(entity) for entity in parsed["entities"]] == [repr(expected)]
+
+
+async def test_markdown_parse_lone_backtick_keeps_the_markup_after_it() -> None:
+    expected = pyrogram.raw.types.MessageEntityBold(
+        offset=6,
+        length=4,
+    )
+
+    parsed = await Markdown(None).parse("don`t **bold**")
+
+    assert parsed["message"] == "don`t bold"
+    assert [repr(entity) for entity in parsed["entities"]] == [repr(expected)]

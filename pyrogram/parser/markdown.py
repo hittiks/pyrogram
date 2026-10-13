@@ -159,35 +159,52 @@ def _wrap_blockquotes(text: str, *, strict: bool) -> str:
     return "\n".join(lines)
 
 
-def _pair(matches: list[re.Match[str]]) -> dict[int, int]:
-    """Which delimiters pair. Anything inside a fixed-width run is left alone."""
+def _pair(matches: list[re.Match[str]]) -> tuple[dict[int, int], set[int]]:
+    """Which delimiters pair, and which links sit inside a fixed-width run.
+
+    Anything inside a fixed-width run is left alone, links included: those stay text.
+    """
     closes: dict[int, int] = {}
+    literal_links: set[int] = set()
     opened: dict[str, int] = {}
     fixed_width: str | None = None
 
+    # A fixed-width delimiter that nothing closes is a literal character. Entering the run
+    #  anyway turned every delimiter and link after it into text, so a lone backtick
+    #  before `**x**` cost it its bold.
+    last_index: dict[str | None, int] = {
+        match.group("delimiter"): index for index, match in enumerate(matches)
+    }
+
     for index, match in enumerate(matches):
         delimiter = match.group("delimiter")
-
-        if delimiter is None:
-            continue
 
         if fixed_width is not None:
             if delimiter == fixed_width:
                 closes[opened.pop(delimiter)] = index
                 fixed_width = None
 
+            elif match.group("label") is not None:
+                literal_links.add(index)
+
+            continue
+
+        if delimiter is None:
             continue
 
         if delimiter in opened:
             closes[opened.pop(delimiter)] = index
             continue
 
-        opened[delimiter] = index
-
         if delimiter in FIXED_WIDTH_DELIMITERS:
+            if last_index[delimiter] == index:
+                continue
+
             fixed_width = delimiter
 
-    return closes
+        opened[delimiter] = index
+
+    return closes, literal_links
 
 
 def _link_markup(label: str, *, url: str, image: bool) -> str | None:
@@ -256,7 +273,7 @@ def _delimiter_entity(spec: EntitySpec, *, language: str) -> types.MessageEntity
 def _convert_inline(text: str) -> str:
     """Delimiters and links become HTML tags. Everything unpaired stays as it was typed."""
     matches = list(MARKDOWN_RE.finditer(text))
-    pairs = _pair(matches)
+    pairs, literal_links = _pair(matches)
     closings: dict[int, str] = {}
 
     parts: list[str] = []
@@ -279,6 +296,11 @@ def _convert_inline(text: str) -> str:
             continue
 
         delimiter = match.group("delimiter")
+
+        if delimiter is None and index in literal_links:
+            parts.append(chunk)
+            parts.append(match.group(0))
+            continue
 
         if delimiter is None:
             markup = _link_markup(
