@@ -78,10 +78,11 @@ class GetMessage:
             replies=replies,
         )
 
-        # `get_messages()` answers `None` for a message that does not exist, which is what a
-        #  deleted one and an id nobody ever used both come back as. The caller named a single
-        #  message, so there is nothing to hand back and nothing it could do with the `None`.
-        if message is None:
+        # Telegram answers `messageEmpty` for a deleted message and for an id nobody ever used,
+        #  which `get_messages()` hands back as a `Message` with `empty` set, and an empty vector
+        #  as `None`. The caller named a single message, so neither is anything it can use.
+        #  https://core.telegram.org/constructor/messageEmpty
+        if message is None or message.empty:
             raise MessageIdInvalid(value=message_id)
 
         return message

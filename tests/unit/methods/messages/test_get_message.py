@@ -87,11 +87,24 @@ def a_message() -> raw.types.Message:
 
 
 @pytest.mark.asyncio
-async def test_a_message_that_does_not_exist_raises() -> None:
-    # Telegram answers with an empty vector for an id nobody ever used, and for one whose message
-    #  has since been deleted. `get_messages()` turns that into `None`.
+async def test_an_answer_with_no_message_raises() -> None:
+    # An empty vector is what `get_messages()` turns into `None`.
     with pytest.raises(MessageIdInvalid) as raised:
         await Answerer([]).get_message(
+            chat_id=_CHAT_ID,
+            message_id=_MESSAGE_ID,
+        )
+
+    assert raised.value.value == _MESSAGE_ID
+
+
+@pytest.mark.asyncio
+async def test_a_deleted_message_raises() -> None:
+    # What the server actually sends for a deleted message, or for an id nobody ever used, is a
+    #  `messageEmpty` in the vector rather than no element at all. `get_messages()` parses it into
+    #  a `Message` with `empty` set, which a check for `None` alone handed straight back.
+    with pytest.raises(MessageIdInvalid) as raised:
+        await Answerer([raw.types.MessageEmpty(id=_MESSAGE_ID)]).get_message(
             chat_id=_CHAT_ID,
             message_id=_MESSAGE_ID,
         )
