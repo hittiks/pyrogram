@@ -213,6 +213,9 @@ def _fold_code_into_pre(
     `<pre><code class="language-python">` is one `pre` entity carrying a language, and is
     the only way the Bot API spells one. Telegram folds the two only when they cover the
     same text, so both pairs have to be adjacent: https://github.com/tdlib/td/blob/c15d3f5a5de6e3ba5839822c451152e5e18bb700/td/telegram/MessageEntity.cpp#L3600-L3617
+    and only when the `code` carries a language, which only a `language-` class gives it:
+    https://github.com/tdlib/td/blob/c15d3f5a5de6e3ba5839822c451152e5e18bb700/td/telegram/MessageEntity.cpp#L3513-L3515
+    A bare `code` folded anyway replaced the language of `<pre language="python">`.
     Run after `_pair`, so that an unclosed `pre` keeps its `code` pair.
     """
     languages: dict[int, str] = {}
@@ -232,7 +235,13 @@ def _fold_code_into_pre(
         ):
             continue
 
-        languages[start] = code.attributes.get("class", "").removeprefix("language-")
+        code_class: str = code.attributes.get("class", "")
+        language: str = code_class.removeprefix("language-")
+
+        if language == code_class or not language:
+            continue
+
+        languages[start] = language
         folded.update((start + 1, end - 1))
 
     return languages, folded

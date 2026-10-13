@@ -411,6 +411,36 @@ async def test_html_parse_code_covering_part_of_a_pre_is_not_its_language() -> N
     assert [repr(entity) for entity in parsed["entities"]] == [repr(entity) for entity in expected]
 
 
+@pytest.mark.parametrize(
+    ("markup", "language"),
+    [
+        pytest.param('<pre language="python"><code>x=1</code></pre>', "python", id="bare-code"),
+        pytest.param('<pre><code class="other">x=1</code></pre>', "", id="class-without-language"),
+        pytest.param('<pre><code class="language-">x=1</code></pre>', "", id="empty-language"),
+    ],
+)
+async def test_html_parse_code_without_a_language_does_not_fold_into_a_pre(
+    markup: str,
+    language: str,
+) -> None:
+    expected = [
+        pyrogram.raw.types.MessageEntityPre(
+            offset=0,
+            length=3,
+            language=language,
+        ),
+        pyrogram.raw.types.MessageEntityCode(
+            offset=0,
+            length=3,
+        ),
+    ]
+
+    parsed = await HTML(None).parse(markup)
+
+    assert parsed["message"] == "x=1"
+    assert [repr(entity) for entity in parsed["entities"]] == [repr(entity) for entity in expected]
+
+
 async def test_html_parse_expandable_blockquote() -> None:
     expected = pyrogram.raw.types.MessageEntityBlockquote(
         offset=0,
