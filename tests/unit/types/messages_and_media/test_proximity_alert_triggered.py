@@ -27,6 +27,8 @@ from pyrogram import raw, types, utils
 
 _USER_ID: Final[int] = 1
 _CHANNEL_ID: Final[int] = 2
+# Neither in `users` nor in `chats`, the case where `_parse()` leaves a side `None`.
+_UNKNOWN_ID: Final[int] = 3
 
 _USER: Final[raw.types.User] = raw.types.User(
     id=_USER_ID,
@@ -102,12 +104,20 @@ async def test_either_side_parses_to_a_chat(
     assert alert.distance == 50
 
 
-async def test_every_field_is_what_the_signature_annotates() -> None:
+@pytest.mark.parametrize(
+    "to_id",
+    [
+        pytest.param(raw.types.PeerChannel(channel_id=_CHANNEL_ID), id="both-sides-known"),
+        pytest.param(raw.types.PeerUser(user_id=_UNKNOWN_ID), id="watcher-unknown"),
+    ],
+)
+async def test_every_field_is_what_the_signature_annotates(to_id: raw.base.Peer) -> None:
     # The parse above passes whatever the annotations say, so this is what pins them: the
-    #  `User` and `str` they used to promise fail `isinstance` against the `Chat` and `int` built.
+    #  `User` and `str` they used to promise fail `isinstance` against the `Chat` and `int` built,
+    #  and a bare `Chat` fails it against the `None` an unknown peer parses to.
     alert = await parse_alert(
         from_id=raw.types.PeerUser(user_id=_USER_ID),
-        to_id=raw.types.PeerChannel(channel_id=_CHANNEL_ID),
+        to_id=to_id,
     )
     signature = inspect.signature(types.ProximityAlertTriggered.__init__, eval_str=True)
 
