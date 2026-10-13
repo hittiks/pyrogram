@@ -1112,14 +1112,19 @@ class Chat(Object):
         chats: dict[int, raw.base.Chat],
         is_chat: bool,
     ) -> raw.base.User | raw.base.Chat | None:
-        from_id = utils.get_raw_peer_id(message.from_id)
-        peer_id = utils.get_raw_peer_id(message.peer_id)
-        chat_id = (peer_id or from_id) if is_chat else (from_id or peer_id)
+        # The sender of a group message can be a user or a channel, so the
+        #  peer that names the id also picks which map it is looked up in.
+        peer = (
+            (message.peer_id or message.from_id)
+            if is_chat
+            else (message.from_id or message.peer_id)
+        )
 
-        if isinstance(message.peer_id, raw.types.PeerUser):
-            return users.get(chat_id)
-
-        return chats.get(chat_id)
+        return Chat._find_peer_chat(
+            peer,
+            users=users,
+            chats=chats,
+        )
 
     @staticmethod
     def _find_peer_chat(

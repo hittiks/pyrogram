@@ -204,3 +204,36 @@ async def test_a_basic_group_message_sent_as_a_channel_names_the_channel() -> No
         enums.ChatType.GROUP,
         enums.ChatType.CHANNEL,
     )
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_user_sender_is_not_taken_for_the_group() -> None:
+    # The sender's id was looked up in the map picked by the group's own peer
+    #  type, so a user with the same id as the group named the group as the sender.
+    group_id: int = 5
+    group = raw.types.Chat(
+        id=group_id,
+        title="Group",
+        photo=raw.types.ChatPhotoEmpty(),
+        participants_count=2,
+        date=DATE,
+        version=1,
+    )
+    raw_message = raw.types.Message(
+        id=1,
+        peer_id=raw.types.PeerChat(chat_id=group_id),
+        from_id=raw.types.PeerUser(user_id=group_id),
+        date=DATE,
+        message="hi",
+        entities=[],
+        restriction_reason=[],
+    )
+
+    parsed = await types.Message._parse(
+        client(),
+        raw_message,
+        users={},
+        chats={group_id: group},
+    )
+
+    assert (parsed.chat.type, parsed.sender_chat) == (enums.ChatType.GROUP, None)
