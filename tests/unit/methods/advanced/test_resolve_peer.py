@@ -18,11 +18,17 @@
 
 from __future__ import annotations as _annotations
 
+from typing import TYPE_CHECKING, Final
+
 import pytest
 
+import pyrogram
 from pyrogram import raw
 from pyrogram.errors import PeerIdInvalid
 from pyrogram.methods.advanced.resolve_peer import ResolvePeer
+
+if TYPE_CHECKING:
+    import re
 
 
 class EmptyStorage:
@@ -35,6 +41,7 @@ class EmptyStorage:
 class Answerer(ResolvePeer):
     """A client whose session has met nobody and whose server vouches for nobody either."""
 
+    CHANNEL_MESSAGE_LINK_RE: Final[re.Pattern[str]] = pyrogram.Client.CHANNEL_MESSAGE_LINK_RE
     is_connected: bool = True
     storage: EmptyStorage = EmptyStorage()
 
@@ -57,10 +64,12 @@ class Answerer(ResolvePeer):
         pytest.param(42, id="user"),
         pytest.param(-42, id="basic-group"),
         pytest.param(-1000000000042, id="channel"),
+        pytest.param("https://t.me/c/42/1", id="channel-link"),
+        pytest.param("@", id="no-username"),
     ],
 )
 @pytest.mark.asyncio
-async def test_an_identifier_nobody_vouches_for_is_named_on_the_error(peer_id: int) -> None:
+async def test_an_identifier_nobody_vouches_for_is_named_on_the_error(peer_id: int | str) -> None:
     # `get_user()`, `get_chat()` and `get_chats()` all resolve before they ask, so this is where
     #  an identifier the session never met fails for them. Raised bare, the error left `value`
     #  as `None` while their docs promise the identifier there.
@@ -68,3 +77,13 @@ async def test_an_identifier_nobody_vouches_for_is_named_on_the_error(peer_id: i
         await Answerer().resolve_peer(peer_id)
 
     assert raised.value.value == peer_id
+
+
+@pytest.mark.asyncio
+async def test_an_identifier_of_no_known_type_is_named_on_the_error() -> None:
+    # Neither an id nor a username, so nothing can resolve it, and the caller still has to be
+    #  told which argument it was.
+    with pytest.raises(PeerIdInvalid) as raised:
+        await Answerer().resolve_peer(b"42")
+
+    assert raised.value.value == b"42"
