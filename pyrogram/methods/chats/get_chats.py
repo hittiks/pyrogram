@@ -173,6 +173,9 @@ class GetChats:
         per identifier. Full information is a single-chat request on Telegram's side, so ask
         :meth:`~pyrogram.Client.get_chat` for it.
 
+        The batching covers identifiers this session has already met. Every other one is resolved
+        first, as with any method, and a username not met yet costs a call of its own to do it.
+
         .. include:: /_includes/usable-by/users-bots.rst
 
         Parameters:
