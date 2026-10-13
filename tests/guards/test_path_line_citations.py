@@ -36,7 +36,7 @@ import io
 import re
 import tokenize
 from itertools import chain
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 from tests.guards.name_resolution import (
     REPOSITORY_ROOT,
@@ -44,6 +44,10 @@ from tests.guards.name_resolution import (
     source_of,
     tooling_files,
 )
+
+if TYPE_CHECKING:
+    import pathlib
+    from collections.abc import Iterator
 
 _PATH_LINE: Final[re.Pattern[str]] = re.compile(r"\w\.[A-Za-z]\w*:\d+")
 _URL: Final[re.Pattern[str]] = re.compile(r"\w+://\S+")
@@ -63,10 +67,14 @@ def path_line_citations(source: str) -> list[int]:
     return found
 
 
+def swept_modules() -> Iterator[pathlib.Path]:
+    return chain(hand_written_files(), tooling_files())
+
+
 def comments_citing_a_line() -> list[str]:
     found: list[str] = []
 
-    for path in chain(hand_written_files(), tooling_files()):
+    for path in swept_modules():
         relative = path.relative_to(REPOSITORY_ROOT).as_posix()
         found.extend(f"{relative}:{line}" for line in path_line_citations(source_of(path)))
 
@@ -75,6 +83,18 @@ def comments_citing_a_line() -> list[str]:
 
 def test_no_comment_cites_a_file_by_line_number() -> None:
     assert comments_citing_a_line() == []
+
+
+def test_the_sweep_reads_the_modules_it_claims_to() -> None:
+    swept = [path.relative_to(REPOSITORY_ROOT).as_posix() for path in swept_modules()]
+
+    assert len(swept) > 700
+
+    # One from each root, so a walk that drops a root or reads nothing fails here rather than
+    #  passing quietly.
+    assert "pyrogram/client.py" in swept
+    assert "tests/guards/test_path_line_citations.py" in swept
+    assert "compiler/api/compiler.py" in swept
 
 
 def test_the_sweep_reads_both_halves_of_what_it_asks() -> None:
