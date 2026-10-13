@@ -464,6 +464,13 @@ async def test_markdown_parse_keeps_a_backslash_before_a_letter() -> None:
     assert parsed["entities"] is None
 
 
+async def test_markdown_parse_escaped_html_tags_stay_text() -> None:
+    parsed = await Markdown(None).parse(r"\<b\>x\</b\>")
+
+    assert parsed["message"] == "<b>x</b>"
+    assert parsed["entities"] is None
+
+
 async def test_markdown_parse_escaped_html_characters_in_strict_mode() -> None:
     parsed = await Markdown(None).parse(r"\<\&\>", strict=True)
 

@@ -251,6 +251,42 @@ def test_html_unparse_no_entities() -> None:
     assert HTML.unparse(text=text, entities=entities) == expected
 
 
+def test_html_unparse_escapes_the_text_outside_every_entity() -> None:
+    expected: str = "&lt;a&gt; <b>&lt;b&gt;</b> &lt;c&gt;"
+    text: str = "<a> <b> <c>"
+    entities = pyrogram.types.List(
+        [
+            pyrogram.types.MessageEntity(
+                type=pyrogram.enums.MessageEntityType.BOLD,
+                offset=4,
+                length=3,
+            )
+        ]
+    )
+
+    assert (
+        HTML.unparse(
+            text=text,
+            entities=entities,
+        )
+        == expected
+    )
+
+
+def test_html_unparse_escapes_a_message_without_entities() -> None:
+    expected: str = "&lt;b&gt;"
+    text: str = "<b>"
+    entities: list[pyrogram.types.MessageEntity] = []
+
+    assert (
+        HTML.unparse(
+            text=text,
+            entities=entities,
+        )
+        == expected
+    )
+
+
 # The parse side. `HTML.parse` needs a client only to resolve a `tg://user` mention,
 #  so `None` is enough for everything below.
 

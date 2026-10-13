@@ -289,8 +289,8 @@ def _convert_inline(text: str) -> str:
         escaped = match.group("escaped")
 
         if escaped is not None:
-            # As a character reference, so that an escaped delimiter cannot be read as one
-            #  on the way through the HTML pass that follows.
+            # As a character reference, so that an escaped `<` or `&` cannot be read as
+            #  markup by the HTML pass that follows.
             parts.append(chunk)
             parts.append(f"&#{ord(escaped)};")
             continue
