@@ -18,6 +18,7 @@
 
 from __future__ import annotations as _annotations
 
+import inspect
 from typing import Final
 
 import pytest
@@ -48,6 +49,25 @@ _CHANNEL: Final[raw.types.Channel] = raw.types.Channel(
 _CHANNEL_CHAT_ID: Final[int] = utils.get_channel_id(_CHANNEL_ID)
 
 
+async def parse_alert(
+    *,
+    from_id: raw.base.Peer,
+    to_id: raw.base.Peer,
+) -> types.ProximityAlertTriggered:
+    action = raw.types.MessageActionGeoProximityReached(
+        from_id=from_id,
+        to_id=to_id,
+        distance=50,
+    )
+
+    return await types.ProximityAlertTriggered._parse(
+        None,
+        action,
+        {_USER_ID: _USER},
+        {_CHANNEL_ID: _CHANNEL},
+    )
+
+
 @pytest.mark.parametrize(
     ("from_id", "to_id", "expected_ids"),
     [
@@ -71,20 +91,28 @@ async def test_either_side_parses_to_a_chat(
     *,
     expected_ids: list[int],
 ) -> None:
-    action = raw.types.MessageActionGeoProximityReached(
+    alert = await parse_alert(
         from_id=from_id,
         to_id=to_id,
-        distance=50,
-    )
-
-    alert = await types.ProximityAlertTriggered._parse(
-        None,
-        action,
-        {_USER_ID: _USER},
-        {_CHANNEL_ID: _CHANNEL},
     )
 
     assert alert.traveler is not None
     assert alert.watcher is not None
     assert [alert.traveler.id, alert.watcher.id] == expected_ids
     assert alert.distance == 50
+
+
+async def test_every_field_is_what_the_signature_annotates() -> None:
+    # The parse above passes whatever the annotations say, so this is what pins them: the
+    #  `User` and `str` they used to promise fail `isinstance` against the `Chat` and `int` built.
+    alert = await parse_alert(
+        from_id=raw.types.PeerUser(user_id=_USER_ID),
+        to_id=raw.types.PeerChannel(channel_id=_CHANNEL_ID),
+    )
+    signature = inspect.signature(types.ProximityAlertTriggered.__init__, eval_str=True)
+
+    assert {
+        name: isinstance(getattr(alert, name), parameter.annotation)
+        for name, parameter in signature.parameters.items()
+        if name != "self"
+    } == {"traveler": True, "watcher": True, "distance": True}
