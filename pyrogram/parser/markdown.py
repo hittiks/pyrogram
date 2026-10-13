@@ -28,6 +28,7 @@ The delimiters themselves live in `entities.py`, once.
 
 from __future__ import annotations as _annotations
 
+import bisect
 import html
 import re
 import string
@@ -51,6 +52,7 @@ from .entities import (
     FIXED_WIDTH_DELIMITERS,
     MARKDOWN_DELIMITERS,
     PRE,
+    SPOILER,
     TEXT_LINK,
     EntitySpec,
     Insertion,
@@ -67,9 +69,14 @@ _DELIMITER_PATTERN: Final[str] = "|".join(re.escape(delimiter) for delimiter in 
 # A label ends at the first unescaped `]`, a url at the first unescaped `)`; an escaped
 #  pair passes through whole, so a `\]` or `\)` written by `unparse` stays inside instead
 #  of closing early. A label may span lines, as the text of a link can, and holds a code
-#  run whole, so `list[int]` as code in a link is not cut at its `]`.
+#  run whole, so `list[int]` as code in a link is not cut at its `]`. A backtick in a label
+#  opens a code run when a later backtick closes it and is a lone character only when none
+#  does: with a branch that also took it as plain text, a label that never closed was tried
+#  in every split, so `[` before 24 code runs took 5 seconds. As in CommonMark, the code run
+#  then wins over the link: https://spec.commonmark.org/0.31.2/#example-525
 _LINK_PATTERN: Final[str] = (
-    r"(?P<image>!?)\[(?P<label>(?:\\.|`[^`]+`|[^\\\]])+?)\]\((?P<url>(?:\\.|[^\\)\n])+?)\)"
+    r"(?P<image>!?)\[(?P<label>(?:\\.|`[^`]*`|`(?![^`]*`)|[^\\\]`])+?)\]"
+    r"\((?P<url>(?:\\.|[^\\)\n])+?)\)"
 )
 
 
@@ -163,24 +170,36 @@ class _PlacedInsertion:
     """One insertion with its place in the document order.
 
     Offset first; at one offset the `InsertionKind` rank applies; a longer entity
-    opens earlier and closes later than a shorter one, so the delimiters nest; and
+    opens earlier and closes later than a shorter one, so the delimiters nest; on
+    one span a fixed-width entity goes innermost, since `parse` reads everything in
+    it as text and TDLib sorts code before a link or bold on the same span; and
     among equals the order Telegram sent the entities in decides, reversed for the
     closes because what opened last must close first.
+    https://github.com/tdlib/td/blob/c15d3f5a5de6e3ba5839822c451152e5e18bb700/td/telegram/MessageEntity.h#L100-L110
+    https://github.com/tdlib/td/blob/c15d3f5a5de6e3ba5839822c451152e5e18bb700/td/telegram/MessageEntity.cpp#L40-L66
     """
 
     offset: int
     rank: InsertionKind
     nesting: int
+    depth: int
     arrival: int
     insertion: Insertion = field(compare=False)
 
 
-def _place(insertion: Insertion, *, length: int, index: int) -> _PlacedInsertion:
+def _place(
+    insertion: Insertion,
+    *,
+    length: int,
+    index: int,
+    fixed_width: bool,
+) -> _PlacedInsertion:
     if insertion.kind is InsertionKind.CLOSE:
         return _PlacedInsertion(
             offset=insertion.offset,
             rank=insertion.kind,
             nesting=length,
+            depth=-int(fixed_width),
             arrival=-index,
             insertion=insertion,
         )
@@ -189,6 +208,7 @@ def _place(insertion: Insertion, *, length: int, index: int) -> _PlacedInsertion
         offset=insertion.offset,
         rank=insertion.kind,
         nesting=-length,
+        depth=int(fixed_width),
         arrival=index,
         insertion=insertion,
     )
@@ -257,6 +277,14 @@ def _wrap_blockquotes(text: str, *, strict: bool) -> str:
     fixed_width = _fixed_width_spans(text)
     line_start: int = 0
 
+    # As in TDLib, the end marker of an expandable quote is a `||` delimiter that closes no
+    #  spoiler: a spoiler ending a line of the quote writes the same `||`, and reading that
+    #  as the end cut the quote short. A spoiler opened before the quote counts too, so the
+    #  count runs over the whole text, less the `||` already taken as end markers.
+    #  https://github.com/tdlib/td/blob/c15d3f5a5de6e3ba5839822c451152e5e18bb700/td/telegram/MessageEntity.cpp#L2285-L2300
+    spoiler_ends = _spoiler_delimiter_ends(text)
+    end_markers: int = 0
+
     for raw_line in text.split("\n"):
         start = line_start
         line_start += len(raw_line) + 1
@@ -293,6 +321,17 @@ def _wrap_blockquotes(text: str, *, strict: bool) -> str:
 
         # The opening line may carry the end marker too, which is what `**> quote||` is.
         if expandable and content.endswith(BLOCKQUOTE_EXPANDABLE_END):
+            line_end: int = start + len(raw_line)
+            index: int = bisect.bisect_left(spoiler_ends, line_end)
+            delimiter: bool = index < len(spoiler_ends) and spoiler_ends[index] == line_end
+
+            # A `||` that is no delimiter, as in `\||`, is text; one after an odd count of
+            #  delimiters closes the spoiler they leave open.
+            if not delimiter or (index - end_markers) % 2 == 1:
+                quoted.append(_escape(content, strict=strict))
+                continue
+
+            end_markers += 1
             quoted.append(
                 _escape(
                     content[: -len(BLOCKQUOTE_EXPANDABLE_END)],
@@ -316,6 +355,29 @@ def _wrap_blockquotes(text: str, *, strict: bool) -> str:
 def _delimiter(match: re.Match[str]) -> str | None:
     """The delimiter a match is, or `None` for an escape or a link."""
     return match.group("delimiter")
+
+
+def _spoiler_delimiter_ends(text: str) -> list[int]:
+    """Where every spoiler delimiter of the text ends, in order; a `||` in code is text."""
+    ends: list[int] = []
+    fixed_width: str | None = None
+
+    for match in _scan(text):
+        delimiter = _delimiter(match)
+
+        if fixed_width is not None:
+            if delimiter == fixed_width:
+                fixed_width = None
+
+            continue
+
+        if delimiter in FIXED_WIDTH_DELIMITERS:
+            fixed_width = delimiter
+
+        elif delimiter == SPOILER.markdown_delimiter:
+            ends.append(match.end())
+
+    return ends
 
 
 def _fixed_width_run(text: str, *, delimiter: str, position: int) -> list[re.Match[str]]:
@@ -404,16 +466,28 @@ def _pair(matches: list[re.Match[str]]) -> tuple[dict[int, int], set[int]]:
     return closes, literal
 
 
-def _fixed_width_spans(text: str) -> list[range]:
-    """Where the text of every closed fixed-width run lies, delimiters excluded."""
+def _fixed_width_spans(text: str, *, offset: int = 0) -> list[range]:
+    """Where the text of every closed fixed-width run lies, delimiters excluded.
+
+    A link label is read for runs too, since `_scan` takes a link whole: code that spans
+    lines in a link's text otherwise left a `>` line in it to be read as a quote.
+    """
     matches = _scan(text)
     closes, _ = _pair(matches)
 
-    return [
-        range(matches[opening].end(), matches[closing].start())
+    spans = [
+        range(offset + matches[opening].end(), offset + matches[closing].start())
         for opening, closing in closes.items()
         if _delimiter(matches[opening]) in FIXED_WIDTH_DELIMITERS
     ]
+
+    for match in matches:
+        label = match.groupdict().get("label")
+
+        if label is not None:
+            spans.extend(_fixed_width_spans(label, offset=offset + match.start("label")))
+
+    return spans
 
 
 def _link_markup(label: str, *, url: str, image: bool) -> str | None:
@@ -591,6 +665,7 @@ class Markdown:
                     insertion,
                     length=entity.length,
                     index=index,
+                    fixed_width=spec in {CODE, PRE},
                 )
                 for insertion in spec.markdown_insertions(entity, message=text)
             )
