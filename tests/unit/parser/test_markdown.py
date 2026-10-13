@@ -1978,3 +1978,31 @@ async def test_markdown_parse_keeps_a_backslash_before_a_letter_in_a_url() -> No
 
     assert parsed["message"] == "a"
     assert [repr(entity) for entity in parsed["entities"]] == [repr(expected)]
+
+
+async def test_markdown_parse_link_label_holds_a_matched_pair_of_brackets() -> None:
+    expected = pyrogram.raw.types.MessageEntityTextUrl(
+        offset=0,
+        length=7,
+        url="https://example.com/",
+    )
+
+    parsed = await Markdown(None).parse("[see [1]](https://example.com/)")
+
+    assert parsed["message"] == "see [1]"
+    assert [repr(entity) for entity in parsed["entities"]] == [repr(expected)]
+
+
+async def test_markdown_parse_unmatched_bracket_ends_a_link_label() -> None:
+    # As in CommonMark, an unmatched `[` cannot be link text, so the link is the
+    #  innermost one; a label that read past it is what made a run of `[` quadratic.
+    expected = pyrogram.raw.types.MessageEntityTextUrl(
+        offset=3,
+        length=1,
+        url="https://example.com/",
+    )
+
+    parsed = await Markdown(None).parse("[a [b](https://example.com/)")
+
+    assert parsed["message"] == "[a b"
+    assert [repr(entity) for entity in parsed["entities"]] == [repr(expected)]

@@ -74,8 +74,14 @@ _DELIMITER_PATTERN: Final[str] = "|".join(re.escape(delimiter) for delimiter in 
 #  does: with a branch that also took it as plain text, a label that never closed was tried
 #  in every split, so `[` before 24 code runs took 5 seconds. As in CommonMark, the code run
 #  then wins over the link: https://spec.commonmark.org/0.31.2/#example-525
+_LABEL_PIECE_PATTERN: Final[str] = r"\\.|`[^`]*`|`(?![^`]*`)|[^\\\[\]`]"
+
+# A label holds a matched pair of brackets, so `[see [1]](url)` is a link, and an unmatched
+#  `[` ends it, as in CommonMark: https://spec.commonmark.org/0.31.2/#link-text
+#  Taking any `[` as text made every `[` of a run try the rest of the message, so 4096 of
+#  them took 0.8 seconds.
 _LINK_PATTERN: Final[str] = (
-    r"(?P<image>!?)\[(?P<label>(?:\\.|`[^`]*`|`(?![^`]*`)|[^\\\]`])+?)\]"
+    rf"(?P<image>!?)\[(?P<label>(?:{_LABEL_PIECE_PATTERN}|\[(?:{_LABEL_PIECE_PATTERN})*\])+?)\]"
     r"\((?P<url>(?:\\.|[^\\)\n])+?)\)"
 )
 
