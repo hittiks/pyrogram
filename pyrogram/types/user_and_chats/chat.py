@@ -1021,6 +1021,7 @@ class Chat(Object):
             is_admin=True if community.admin_rights else None,
             title=community.title,
             photo=parsed_community.photo,
+            dc_id=getattr(community.photo, "dc_id", None),
             community_id=parsed_community.id,
             community=parsed_community,
             raw=community,
