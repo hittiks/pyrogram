@@ -214,3 +214,29 @@ async def test_one_call_is_made_per_kind_of_peer_however_many_identifiers() -> N
     await cast("pyrogram.Client", client).get_chats(list(peers))
 
     assert len(client.queries) == 3
+
+
+@pytest.mark.parametrize(
+    ("peer", "query_type"),
+    [
+        pytest.param(a_user_peer(7), raw.functions.users.GetUsers, id="user"),
+        pytest.param(
+            raw.types.InputPeerChat(chat_id=42),
+            raw.functions.messages.GetChats,
+            id="basic-group",
+        ),
+        pytest.param(a_channel_peer(99), raw.functions.channels.GetChannels, id="channel"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_a_kind_nobody_asked_for_is_not_called(
+    peer: raw.base.InputPeer,
+    query_type: type[raw.core.TLObject],
+) -> None:
+    # `get_chat()` with `force_full=False` goes through here with one identifier, and made one
+    #  call before it did. Asking the two other kinds with an empty vector would triple that.
+    client = Answerer({"chat": peer}, [])
+
+    await cast("pyrogram.Client", client).get_chats(["chat"])
+
+    assert [type(query) for query in client.queries] == [query_type]
