@@ -735,6 +735,23 @@ _ROUND_TRIP_CORPUS: Final[tuple[pytest.ParameterSet, ...]] = (
         id="quote-marker-at-the-start-of-bold",
     ),
     pytest.param(
+        "a\n> b",
+        [
+            pyrogram.types.MessageEntity(
+                type=pyrogram.enums.MessageEntityType.BOLD,
+                offset=2,
+                length=3,
+            ),
+        ],
+        [
+            pyrogram.raw.types.MessageEntityBold(
+                offset=2,
+                length=3,
+            ),
+        ],
+        id="quote-marker-at-the-start-of-bold-on-a-later-line",
+    ),
+    pytest.param(
         r"a\-",
         [
             pyrogram.types.MessageEntity(
