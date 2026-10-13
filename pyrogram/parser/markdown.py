@@ -34,7 +34,7 @@ import re
 import string
 import urllib.parse
 from dataclasses import dataclass, field
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 import pyrogram
 from pyrogram import types
@@ -62,6 +62,9 @@ from .entities import (
     valid_date_time_format,
 )
 from .html import HTML
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 _DELIMITER_PATTERN: Final[str] = "|".join(re.escape(delimiter) for delimiter in MARKDOWN_DELIMITERS)
 
@@ -220,12 +223,40 @@ def _place(
     )
 
 
-def _inside(insertion: Insertion, *, span: range) -> bool:
-    """Whether the insertion lands inside the span, an open at its start and a close at its end."""
-    if insertion.kind is InsertionKind.OPEN:
-        return insertion.offset in span
+def _merged(spans: Iterable[range]) -> list[range]:
+    """The spans sorted and merged, so that `_covers` can bisect them.
 
-    return span.start < insertion.offset <= span.stop
+    Asking every span in turn, once per line or per insertion, was quadratic: 2000 code
+    entities took 0.26 seconds to unparse, 100 times as long as without the check.
+    """
+    merged: list[range] = []
+
+    for span in sorted(spans, key=lambda span: span.start):
+        if not span:
+            continue
+
+        if merged and span.start <= merged[-1].stop:
+            merged[-1] = range(merged[-1].start, max(merged[-1].stop, span.stop))
+            continue
+
+        merged.append(span)
+
+    return merged
+
+
+def _covers(position: int, *, spans: list[range]) -> bool:
+    """Whether one of the spans `_merged` returned holds the position."""
+    index: int = bisect.bisect_right(spans, position, key=lambda span: span.start) - 1
+
+    return index >= 0 and position in spans[index]
+
+
+def _inside(insertion: Insertion, *, spans: list[range]) -> bool:
+    """Whether the insertion lands inside a span, an open at its start and a close at its end."""
+    if insertion.kind is InsertionKind.OPEN:
+        return _covers(insertion.offset, spans=spans)
+
+    return _covers(insertion.offset - 1, spans=spans)
 
 
 def _advance_line_prefix(prefix: str, *, piece: str) -> str:
@@ -280,7 +311,7 @@ def _wrap_blockquotes(text: str, *, strict: bool) -> str:
     expandable: bool = False
 
     # A `>` line inside a fence is the fence's text, as everything in a fixed-width run is.
-    fixed_width = _fixed_width_spans(text)
+    fixed_width = _merged(_fixed_width_spans(text))
     line_start: int = 0
 
     # As in TDLib, the end marker of an expandable quote is a `||` delimiter that closes no
@@ -307,7 +338,7 @@ def _wrap_blockquotes(text: str, *, strict: bool) -> str:
         if inside:
             content = _strip_marker(raw_line, marker=BLOCKQUOTE_MARKER)
 
-        elif any(start in span for span in fixed_width):
+        elif _covers(start, spans=fixed_width):
             lines.append(_escape(raw_line, strict=strict))
             continue
 
@@ -678,20 +709,20 @@ class Markdown:
 
         # `parse` reads the text of a fixed-width run as typed, backslashes included, so
         #  an escape written there would reach the message.
-        fixed_width = [
+        fixed_width = _merged(
             range(entity.offset, entity.offset + entity.length)
             for entity in entities
             if spec_for_type(entity.type) in {CODE, PRE}
-        ]
+        )
 
         # A fence writes line breaks the message does not have; inside a quote each one
         #  starts a line that needs the marker too, or `parse` ends the quote there and
         #  the rest of it reaches the message as a literal `<blockquote>`.
-        quotes = [
+        quotes = _merged(
             range(entity.offset, entity.offset + entity.length)
             for entity in entities
             if spec_for_type(entity.type) is BLOCKQUOTE
-        ]
+        )
 
         parts: list[str] = []
         written: int = 0
@@ -702,10 +733,10 @@ class Markdown:
             chunk = text[written : insertion.offset]
             markup = insertion.text
 
-            if "\n" in markup and any(_inside(insertion, span=span) for span in quotes):
+            if "\n" in markup and _inside(insertion, spans=quotes):
                 markup = markup.replace("\n", f"\n{BLOCKQUOTE_MARKER} ")
 
-            if not any(written in span for span in fixed_width):
+            if not _covers(written, spans=fixed_width):
                 chunk = _escape_chunk(
                     chunk,
                     line_prefix=line_prefix,
