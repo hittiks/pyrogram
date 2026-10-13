@@ -114,7 +114,13 @@ async def _parse_by_id(
         if chat is None:
             continue
 
-        by_id[_SELF if getattr(raw_chat, "is_self", False) else chat.id] = chat
+        by_id[chat.id] = chat
+
+        # The account's own id or username resolves to a plain `inputPeerUser`, keyed by the id,
+        #  while "me" resolves to `inputPeerSelf`, keyed by `_SELF`. The answer is the same `user`
+        #  either way, so it has to be found under both.
+        if getattr(raw_chat, "is_self", False):
+            by_id[_SELF] = chat
 
     return by_id
 

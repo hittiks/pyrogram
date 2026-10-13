@@ -189,6 +189,18 @@ async def test_saved_messages_is_matched_through_the_self_flag() -> None:
 
 
 @pytest.mark.asyncio
+async def test_the_own_account_is_found_by_its_id_as_well_as_by_me() -> None:
+    # The account's own id resolves to a plain `inputPeerUser`, yet the answer still carries the
+    #  `self` flag. Keying that answer under "me" alone lost it for the id, so `get_chat()` with
+    #  `force_full=False` raised `PeerIdInvalid` for the account it is running as.
+    peers = {"me": raw.types.InputPeerSelf(), 7: a_user_peer(7)}
+
+    chats = await answerer(peers, raw_chats=[a_user(7, is_self=True)]).get_chats(["me", 7])
+
+    assert [chat.id for chat in chats] == [7, 7]
+
+
+@pytest.mark.asyncio
 async def test_one_call_is_made_per_kind_of_peer_however_many_identifiers() -> None:
     peers = {
         7: a_user_peer(7),
