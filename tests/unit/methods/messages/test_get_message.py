@@ -43,6 +43,11 @@ class Answerer(GetMessage, GetMessages):
     def __init__(self, messages: list[raw.base.Message]) -> None:
         self.messages = messages
         self.message_cache = Cache(16)
+        self._queries: list[raw.core.TLObject] = []
+
+    @property
+    def queries(self) -> list[raw.core.TLObject]:
+        return self._queries
 
     async def resolve_peer(self, peer_id: int | str) -> raw.types.InputPeerChat:
         return raw.types.InputPeerChat(chat_id=_CHAT_ID)
@@ -53,6 +58,8 @@ class Answerer(GetMessage, GetMessages):
         *,
         sleep_threshold: int = 0,
     ) -> raw.types.messages.Messages:
+        self._queries.append(query)
+
         return raw.types.messages.Messages(
             messages=self.messages,
             chats=[a_chat()],
@@ -72,7 +79,7 @@ def a_chat() -> raw.types.Chat:
     )
 
 
-def a_message() -> raw.types.Message:
+def a_message(*, reply_to: raw.base.MessageReplyHeader | None = None) -> raw.types.Message:
     # `entities` and `restriction_reason` are `flags.N?Vector<...>`, and the generated `read()`
     #  gives an absent vector back as `[]`. `Message._parse()` iterates both without guarding, so
     #  a hand-built `raw.types.Message` has to spell out what the wire implies.
@@ -81,6 +88,7 @@ def a_message() -> raw.types.Message:
         peer_id=raw.types.PeerChat(chat_id=_CHAT_ID),
         date=0,
         message="A message",
+        reply_to=reply_to,
         entities=[],
         restriction_reason=[],
     )
@@ -121,3 +129,19 @@ async def test_a_message_that_exists_is_handed_straight_back() -> None:
 
     assert message.id == _MESSAGE_ID
     assert message.text == "A message"
+
+
+@pytest.mark.asyncio
+async def test_the_replies_asked_for_reach_get_messages() -> None:
+    # `get_messages()` fetches the replied message with a second call unless `replies` is 0, and
+    #  its own default is 1, so a `replies` that never reached it still answered and only cost a
+    #  call the caller had declined.
+    client = Answerer([a_message(reply_to=raw.types.MessageReplyHeader(reply_to_msg_id=98))])
+
+    await client.get_message(
+        chat_id=_CHAT_ID,
+        message_id=_MESSAGE_ID,
+        replies=0,
+    )
+
+    assert len(client.queries) == 1
