@@ -28,6 +28,7 @@ The tags and delimiters follow the Bot API: https://core.telegram.org/bots/api#f
 
 from __future__ import annotations as _annotations
 
+import html
 import re
 from dataclasses import dataclass
 from typing import Final, TypeAlias
@@ -158,7 +159,8 @@ class PreSpec(EntitySpec):
         if not entity.language:
             return "<pre>"
 
-        return f'<pre><code class="language-{entity.language}">'
+        # Escaped as an attribute value, so that a `"` cannot end the attribute early.
+        return f'<pre><code class="language-{html.escape(entity.language)}">'
 
     def html_close(self, entity: types.MessageEntity) -> str:
         return "</code></pre>" if entity.language else "</pre>"
@@ -218,7 +220,9 @@ class TextLinkSpec(EntitySpec):
         return {"url": link_url(attributes)}
 
     def html_open(self, entity: types.MessageEntity) -> str:
-        return f'<a href="{entity.url}">'
+        # Escaped as an attribute value: a `"` in the url ended the attribute early, and
+        #  `&amp;` came back from `parse` as `&`.
+        return f'<a href="{html.escape(entity.url or "")}">'
 
     def markdown_open(self, entity: types.MessageEntity) -> str:
         return "["

@@ -181,7 +181,9 @@ def _link_markup(label: str, *, url: str, image: bool) -> str | None:
             type=MessageEntityType.TEXT_LINK,
             offset=0,
             length=0,
-            url=url,
+            # `html_open` escapes the url as an attribute, and strict mode has already
+            #  escaped it once.
+            url=html.unescape(url),
         )
 
         return f"{TEXT_LINK.html_open(entity)}{label}{TEXT_LINK.html_close(entity)}"
@@ -300,7 +302,8 @@ def _convert_inline(text: str) -> str:
             line_end = text.find("\n", match.end())
 
             if line_end != -1 and line_end < matches[closing_index].start():
-                language = text[match.end() : line_end]
+                # `html_open` escapes it, and strict mode has already escaped it once.
+                language = html.unescape(text[match.end() : line_end])
                 written = line_end + 1
 
         entity = _delimiter_entity(spec, language=language)

@@ -463,3 +463,60 @@ async def test_html_parse_keeps_a_malformed_date_time_format_as_text() -> None:
 
     assert parsed["message"] == '<tg-time unix="1" format="xyz">x</tg-time>'
     assert parsed["entities"] is None
+
+
+async def test_html_url_with_markup_characters_round_trip() -> None:
+    url: str = 'https://x.com/?q="a"&amp;b'
+    entities = [
+        pyrogram.types.MessageEntity(
+            type=pyrogram.enums.MessageEntityType.TEXT_LINK,
+            offset=0,
+            length=1,
+            url=url,
+        ),
+    ]
+
+    parsed = await HTML(None).parse(
+        HTML.unparse(
+            text="x",
+            entities=entities,
+        )
+    )
+
+    assert [repr(entity) for entity in parsed["entities"]] == [
+        repr(
+            pyrogram.raw.types.MessageEntityTextUrl(
+                offset=0,
+                length=1,
+                url=url,
+            )
+        )
+    ]
+
+
+async def test_html_pre_language_with_a_quote_round_trip() -> None:
+    entities = [
+        pyrogram.types.MessageEntity(
+            type=pyrogram.enums.MessageEntityType.PRE,
+            offset=0,
+            length=1,
+            language='a"b',
+        ),
+    ]
+
+    parsed = await HTML(None).parse(
+        HTML.unparse(
+            text="x",
+            entities=entities,
+        )
+    )
+
+    assert [repr(entity) for entity in parsed["entities"]] == [
+        repr(
+            pyrogram.raw.types.MessageEntityPre(
+                offset=0,
+                length=1,
+                language='a"b',
+            )
+        )
+    ]

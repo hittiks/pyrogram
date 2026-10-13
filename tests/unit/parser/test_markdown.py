@@ -429,3 +429,29 @@ async def test_markdown_parse_unterminated_expandable_quote_runs_to_the_end() ->
 
     assert parsed["message"] == "a\nplain\nmore"
     assert [repr(entity) for entity in parsed["entities"]] == [repr(expected)]
+
+
+async def test_markdown_parse_link_with_an_ampersand_in_strict_mode() -> None:
+    expected = pyrogram.raw.types.MessageEntityTextUrl(
+        offset=0,
+        length=1,
+        url="https://x.com/?a=1&b=2",
+    )
+
+    parsed = await Markdown(None).parse("[a](https://x.com/?a=1&b=2)", strict=True)
+
+    assert parsed["message"] == "a"
+    assert [repr(entity) for entity in parsed["entities"]] == [repr(expected)]
+
+
+async def test_markdown_parse_fence_language_with_a_quote_in_strict_mode() -> None:
+    expected = pyrogram.raw.types.MessageEntityPre(
+        offset=0,
+        length=1,
+        language='a"b',
+    )
+
+    parsed = await Markdown(None).parse('```a"b\nx\n```', strict=True)
+
+    assert parsed["message"] == "x"
+    assert [repr(entity) for entity in parsed["entities"]] == [repr(expected)]
