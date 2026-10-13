@@ -237,3 +237,87 @@ async def test_an_unknown_user_sender_is_not_taken_for_the_group() -> None:
     )
 
     assert (parsed.chat.type, parsed.sender_chat) == (enums.ChatType.GROUP, None)
+
+
+def broadcast_channel() -> raw.types.Channel:
+    channel = monoforum_chat()
+    channel.monoforum = False
+
+    return channel
+
+
+def raw_message_of_kind(
+    kind: str,
+    *,
+    from_id: raw.base.Peer | None,
+) -> raw.types.Message | raw.types.MessageService | raw.types.EphemeralMessage:
+    peer_id = raw.types.PeerChannel(channel_id=CHANNEL_ID)
+
+    if kind == "message":
+        return raw.types.Message(
+            id=1,
+            peer_id=peer_id,
+            from_id=from_id,
+            date=DATE,
+            message="hi",
+            entities=[],
+            restriction_reason=[],
+        )
+
+    if kind == "service":
+        return raw.types.MessageService(
+            id=1,
+            peer_id=peer_id,
+            from_id=from_id,
+            date=DATE,
+            action=raw.types.MessageActionChatEditTitle(title="Channel"),
+        )
+
+    # An ephemeral message always names its sender.
+    return raw.types.EphemeralMessage(
+        id=1,
+        from_id=from_id or peer_id,
+        peer_id=peer_id,
+        receiver_id=USER_ID,
+        date=DATE,
+        message="hi",
+    )
+
+
+@pytest.mark.parametrize("kind", ["message", "service", "ephemeral"])
+@pytest.mark.parametrize(
+    ("from_id", "expected"),
+    [
+        pytest.param(None, (None, enums.ChatType.CHANNEL), id="channel"),
+        pytest.param(
+            raw.types.PeerUser(user_id=CHANNEL_ID),
+            (CHANNEL_ID, None),
+            id="user",
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_the_sender_is_looked_up_by_its_own_peer_type(
+    kind: str,
+    *,
+    from_id: raw.base.Peer | None,
+    expected: tuple[int | None, enums.ChatType | None],
+) -> None:
+    # User and channel ids overlap, so a lookup by raw id alone took a channel for the user.
+    user = raw.types.User(
+        id=CHANNEL_ID,
+        first_name="User",
+        access_hash=0,
+    )
+
+    parsed = await types.Message._parse(
+        client(),
+        raw_message_of_kind(kind, from_id=from_id),
+        users={CHANNEL_ID: user},
+        chats={CHANNEL_ID: broadcast_channel()},
+    )
+
+    assert (
+        parsed.from_user.id if parsed.from_user else None,
+        parsed.sender_chat.type if parsed.sender_chat else None,
+    ) == expected

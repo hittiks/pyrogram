@@ -1076,20 +1076,21 @@ class Message(Object, Update):
                 else:
                     users.update({i.id: i for i in r})
 
-        raw_from_user = users.get(from_id or peer_id)
-        from_user = (
-            await types.User._parse(client, raw_from_user) if raw_from_user is not None else None
-        )
-
-        raw_sender_chat = types.Chat._find_message_chat(
+        # User and channel ids overlap, so the sender is a user only when its own peer says so.
+        raw_sender = types.Chat._find_message_chat(
             message,
             users=users,
             chats=chats,
             is_chat=False,
         )
+        from_user = (
+            await types.User._parse(client, raw_sender)
+            if isinstance(raw_sender, raw.types.User)
+            else None
+        )
         sender_chat = (
-            await types.Chat._parse_chat(client, raw_sender_chat)
-            if from_user is None and raw_sender_chat is not None
+            await types.Chat._parse_chat(client, raw_sender)
+            if from_user is None and raw_sender is not None
             else None
         )
 
@@ -1655,20 +1656,21 @@ class Message(Object, Update):
                 else:
                     users.update({i.id: i for i in r})
 
-        raw_from_user = users.get(from_id or peer_id)
-        from_user = (
-            await types.User._parse(client, raw_from_user) if raw_from_user is not None else None
-        )
-
-        raw_sender_chat = types.Chat._find_message_chat(
+        # User and channel ids overlap, so the sender is a user only when its own peer says so.
+        raw_sender = types.Chat._find_message_chat(
             message,
             users=users,
             chats=chats,
             is_chat=False,
         )
+        from_user = (
+            await types.User._parse(client, raw_sender)
+            if isinstance(raw_sender, raw.types.User)
+            else None
+        )
         sender_chat = (
-            await types.Chat._parse_chat(client, raw_sender_chat)
-            if from_user is None and raw_sender_chat is not None
+            await types.Chat._parse_chat(client, raw_sender)
+            if from_user is None and raw_sender is not None
             else None
         )
 
@@ -2144,20 +2146,21 @@ class Message(Object, Update):
                 else:
                     users.update({i.id: i for i in r})
 
-        raw_from_user = users.get(from_id or peer_id)
-        from_user = (
-            await types.User._parse(client, raw_from_user) if raw_from_user is not None else None
-        )
-
-        raw_sender_chat = types.Chat._find_message_chat(
+        # User and channel ids overlap, so the sender is a user only when its own peer says so.
+        raw_sender = types.Chat._find_message_chat(
             message,
             users=users,
             chats=chats,
             is_chat=False,
         )
+        from_user = (
+            await types.User._parse(client, raw_sender)
+            if isinstance(raw_sender, raw.types.User)
+            else None
+        )
         sender_chat = (
-            await types.Chat._parse_chat(client, raw_sender_chat)
-            if from_user is None and raw_sender_chat is not None
+            await types.Chat._parse_chat(client, raw_sender)
+            if from_user is None and raw_sender is not None
             else None
         )
 
