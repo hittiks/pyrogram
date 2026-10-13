@@ -30,6 +30,7 @@ from __future__ import annotations as _annotations
 
 import html
 import re
+import string
 import urllib.parse
 from typing import Final
 
@@ -58,15 +59,30 @@ from .html import HTML
 
 _DELIMITER_PATTERN: Final[str] = "|".join(re.escape(delimiter) for delimiter in MARKDOWN_DELIMITERS)
 
+# Only ASCII punctuation can be escaped, as in CommonMark, so that the backslashes of
+#  `C:\Users` or `\d+` reach the message instead of being eaten.
+#  https://spec.commonmark.org/0.31.2/#backslash-escapes
 MARKDOWN_RE: Final[re.Pattern[str]] = re.compile(
-    r"\\(?P<escaped>[\s\S])"
+    rf"\\(?P<escaped>[{re.escape(string.punctuation)}])"
     rf"|(?P<delimiter>{_DELIMITER_PATTERN})"
     r"|(?P<image>!?)\[(?P<label>.+?)\]\((?P<url>.+?)\)"
 )
 
 
+# Splitting on the capture keeps every `\X` pair as its own odd-indexed piece.
+_BACKSLASH_PAIR_RE: Final[re.Pattern[str]] = re.compile(r"(\\.)")
+
+
 def _escape(line: str, *, strict: bool) -> str:
-    return html.escape(line) if strict else line
+    if not strict:
+        return line
+
+    # `html.escape` must not reach inside a backslash pair: `\<` would become `\&lt;`,
+    #  the escaped branch of `MARKDOWN_RE` then reads `\&` instead of `\<`, and the
+    #  message carries `&lt;` where the sender typed `<`.
+    pieces = _BACKSLASH_PAIR_RE.split(line)
+
+    return "".join(piece if index % 2 else html.escape(piece) for index, piece in enumerate(pieces))
 
 
 def _strip_marker(line: str, *, marker: str) -> str:
