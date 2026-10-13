@@ -115,6 +115,8 @@ def test_the_sweep_reads_both_halves_of_what_it_asks() -> None:
         == []
     )
     assert path_line_citations("# https://proxy.example.com:1080/path\n") == []
+    # Any scheme is a URL, and a proxy one is the likeliest to carry a port.
+    assert path_line_citations("# socks5://proxy.example.com:1080\n") == []
 
     # A citation inside a string is data, which is why this reads tokens and not lines.
     assert path_line_citations('expected = "probe.py:13: Bound.event"\n') == []
