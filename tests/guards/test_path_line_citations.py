@@ -20,9 +20,10 @@
 
 A `path:line` citation is right on the day it is written and wrong after the next edit above
 that line, with nothing to notice: the suite, `ruff` and `ty` never read comments. When this
-guard was written, one of five such citations had already drifted, `tcp.py:505` pointing at a
-`return` instead of the `raise` the comment was about. A comment names the function or the
-TL constructor instead, which is found by a search and does not move.
+guard was written, one of five such citations had already drifted, `tcp.py:505` pointing at
+the `_connect` signature instead of the `raise` in `send` the comment was about, and the next
+schema update moved the three `main_api.tl` ones as well. A comment names the function or
+the TL constructor instead, which is found by a search and does not move.
 
 A permalink is not a citation of this kind: it is pinned to a commit, so its line cannot
 move, and it marks the line with `#L`, not `:`. URLs are removed before the search, which
@@ -37,7 +38,12 @@ import tokenize
 from itertools import chain
 from typing import Final
 
-from tests.guards.name_resolution import REPOSITORY_ROOT, hand_written_files, tooling_files
+from tests.guards.name_resolution import (
+    REPOSITORY_ROOT,
+    hand_written_files,
+    source_of,
+    tooling_files,
+)
 
 _PATH_LINE: Final[re.Pattern[str]] = re.compile(r"\w\.[A-Za-z]\w*:\d+")
 _URL: Final[re.Pattern[str]] = re.compile(r"\w+://\S+")
@@ -62,7 +68,7 @@ def comments_citing_a_line() -> list[str]:
 
     for path in chain(hand_written_files(), tooling_files()):
         relative = path.relative_to(REPOSITORY_ROOT).as_posix()
-        found.extend(f"{relative}:{line}" for line in path_line_citations(path.read_text()))
+        found.extend(f"{relative}:{line}" for line in path_line_citations(source_of(path)))
 
     return found
 
