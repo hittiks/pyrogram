@@ -19,8 +19,8 @@
 """No comment cites a file by line number.
 
 A `path:line` citation is right on the day it is written and wrong after the next edit above
-that line, with nothing to notice: the suite, `ruff` and `ty` never read comments. When this
-guard was written, one of five such citations had already drifted, `tcp.py:505` pointing at
+that line, with nothing to notice: no check opens the cited file to see what that line holds
+now. When this guard was written, one of five such citations had already drifted, `tcp.py:505` pointing at
 the `_connect` signature instead of the `raise` in `send` the comment was about, and the next
 schema update moved the four `main_api.tl` ones as well. A comment names the function or
 the TL constructor instead, which is found by a search and does not move.
