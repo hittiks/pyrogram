@@ -284,12 +284,13 @@ def _link_markup(label: str, *, url: str, image: bool) -> str | None:
     parsed = urllib.parse.urlparse(html.unescape(url))
     parameters = urllib.parse.parse_qs(parsed.query)
 
-    # Validated before any tag is written: a link that fails here has to survive as the
-    #  text the sender typed, not as an invented literal tag.
+    # Validated before any tag is written, the way the specs' `matches` validate: a link
+    #  that fails here has to survive as the text the sender typed, not as an invented
+    #  literal tag.
     if parsed.netloc == "emoji":
         emoji_id: str = parameters.get("id", [""])[0]
 
-        if not emoji_id.isdigit():
+        if not emoji_id.isdecimal():
             return None
 
         entity = types.MessageEntity(
@@ -305,7 +306,7 @@ def _link_markup(label: str, *, url: str, image: bool) -> str | None:
         unix_time: str = parameters.get("unix", [""])[0]
         date_time_format: str = parameters.get("format", [""])[0]
 
-        if not unix_time.isdigit() or not valid_date_time_format(date_time_format):
+        if not unix_time.isdecimal() or not valid_date_time_format(date_time_format):
             return None
 
         entity = types.MessageEntity(

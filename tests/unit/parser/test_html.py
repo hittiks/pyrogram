@@ -595,17 +595,19 @@ async def test_html_crossed_entities_round_trip() -> None:
     ]
 
 
-async def test_html_parse_keeps_a_malformed_emoji_id_as_text() -> None:
-    parsed = await HTML(None).parse('<tg-emoji emoji-id="abc">x</tg-emoji>')
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param('<tg-emoji emoji-id="abc">x</tg-emoji>', id="emoji-id-letters"),
+        pytest.param('<tg-emoji emoji-id="\u00b2">x</tg-emoji>', id="emoji-id-superscript-digit"),
+        pytest.param('<tg-time unix="1" format="xyz">x</tg-time>', id="date-time-format"),
+        pytest.param('<tg-time unix="\u00b2">x</tg-time>', id="date-time-superscript-digit"),
+    ],
+)
+async def test_html_parse_keeps_malformed_emoji_and_date_time_markup_as_text(markup: str) -> None:
+    parsed = await HTML(None).parse(markup)
 
-    assert parsed["message"] == '<tg-emoji emoji-id="abc">x</tg-emoji>'
-    assert parsed["entities"] is None
-
-
-async def test_html_parse_keeps_a_malformed_date_time_format_as_text() -> None:
-    parsed = await HTML(None).parse('<tg-time unix="1" format="xyz">x</tg-time>')
-
-    assert parsed["message"] == '<tg-time unix="1" format="xyz">x</tg-time>'
+    assert parsed["message"] == markup
     assert parsed["entities"] is None
 
 

@@ -264,11 +264,12 @@ class EmailSpec(EntitySpec):
 @dataclass(frozen=True)
 class CustomEmojiSpec(EntitySpec):
     def matches(self, tag: str, *, attributes: dict[str, str]) -> bool:
-        # All digits, so that a malformed id keeps the tag literal instead of raising
-        #  out of `int()` in `raw_arguments`.
+        # Decimal, so that a malformed id keeps the tag literal instead of raising out of
+        #  `int()` in `raw_arguments`. Not `isdigit()`, which also accepts `²`, and `int()`
+        #  rejects that: https://docs.python.org/3.14/library/stdtypes.html#str.isdigit
         emoji_id: str = attributes.get("emoji-id") or attributes.get("id") or ""
 
-        return tag in self.html_tags and emoji_id.isdigit()
+        return tag in self.html_tags and emoji_id.isdecimal()
 
     def raw_arguments(self, attributes: dict[str, str]) -> EntityArgumentsType:
         return {"document_id": int(attributes.get("emoji-id") or attributes["id"])}
@@ -290,8 +291,8 @@ class DateTimeSpec(EntitySpec):
             return False
 
         # Both validated here, so that a malformed tag keeps its text instead of raising
-        #  out of `raw_arguments`.
-        return attributes.get("unix", "").isdigit() and valid_date_time_format(
+        #  out of `raw_arguments`. `isdecimal()` for the reason `CustomEmojiSpec` gives.
+        return attributes.get("unix", "").isdecimal() and valid_date_time_format(
             attributes.get("format", "")
         )
 

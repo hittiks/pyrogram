@@ -406,17 +406,19 @@ async def test_markdown_crossed_entities_round_trip() -> None:
     ]
 
 
-async def test_markdown_parse_keeps_a_malformed_emoji_link_as_typed() -> None:
-    parsed = await Markdown(None).parse("![x](tg://emoji?id=abc)")
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param("![x](tg://emoji?id=abc)", id="emoji-id-letters"),
+        pytest.param("![x](tg://emoji?id=\u00b2)", id="emoji-id-superscript-digit"),
+        pytest.param("![x](tg://time?unix=1&format=xyz)", id="time-format"),
+        pytest.param("![x](tg://time?unix=\u00b2)", id="time-superscript-digit"),
+    ],
+)
+async def test_markdown_parse_keeps_a_malformed_emoji_or_time_link_as_typed(markup: str) -> None:
+    parsed = await Markdown(None).parse(markup)
 
-    assert parsed["message"] == "![x](tg://emoji?id=abc)"
-    assert parsed["entities"] is None
-
-
-async def test_markdown_parse_keeps_a_malformed_time_link_as_typed() -> None:
-    parsed = await Markdown(None).parse("![x](tg://time?unix=1&format=xyz)")
-
-    assert parsed["message"] == "![x](tg://time?unix=1&format=xyz)"
+    assert parsed["message"] == markup
     assert parsed["entities"] is None
 
 
