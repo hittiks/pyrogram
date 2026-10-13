@@ -93,10 +93,18 @@ async def test_chat_high_scores_keep_the_positional_call() -> None:
 
 
 @pytest.mark.asyncio
-async def test_without_any_message_id_raises() -> None:
+@pytest.mark.parametrize(
+    "message_ids",
+    [
+        pytest.param({}, id="neither"),
+        pytest.param({"chat_id": 100}, id="chat_id_only"),
+        pytest.param({"message_id": 5}, id="message_id_only"),
+    ],
+)
+async def test_without_a_full_message_id_raises(message_ids: dict[str, int]) -> None:
     client = GameClient(response=_HIGH_SCORES)
 
     with pytest.raises(ValueError, match="chat_id and message_id are required"):
-        await client.get_game_high_scores(7, chat_id=100)
+        await client.get_game_high_scores(7, **message_ids)
 
     assert client.session.sent == []
