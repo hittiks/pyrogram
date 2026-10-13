@@ -164,12 +164,16 @@ def _pair(tokens: list[TokenType]) -> dict[int, int]:
 
     One stack per tag name, so `<b><i>x</b></i>` still yields both entities rather than
     discarding the pair that crosses.
+
+    A start tag that opens no entity is stacked too, so that the plain `<span>` inside
+    `<span class="tg-spoiler">` takes its own `</span>` rather than ending the spoiler.
+    `_build` writes both of that pair back as text.
     """
     open_by_tag: dict[str, list[int]] = {}
     pairs: dict[int, int] = {}
 
     for index, token in enumerate(tokens):
-        if isinstance(token, StartToken) and token.spec is not None:
+        if isinstance(token, StartToken):
             open_by_tag.setdefault(token.tag, []).append(index)
 
         elif isinstance(token, EndToken):

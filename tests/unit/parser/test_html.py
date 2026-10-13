@@ -286,6 +286,18 @@ async def test_html_parse_span_without_the_spoiler_class_is_not_an_entity() -> N
     assert parsed["entities"] is None
 
 
+async def test_html_parse_plain_span_inside_a_spoiler_span_does_not_end_it() -> None:
+    expected = pyrogram.raw.types.MessageEntitySpoiler(
+        offset=0,
+        length=16,
+    )
+
+    parsed = await HTML(None).parse('<span class="tg-spoiler">a<span>b</span>c</span>')
+
+    assert parsed["message"] == "a<span>b</span>c"
+    assert [repr(entity) for entity in parsed["entities"]] == [repr(expected)]
+
+
 async def test_html_parse_pre_with_language() -> None:
     expected = pyrogram.raw.types.MessageEntityPre(
         offset=0,
