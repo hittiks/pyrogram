@@ -208,10 +208,8 @@ class Poll(Object, Update):
                             if raw_voter is not None
                             else None
                             for raw_voter in (
-                                users.get(
-                                    utils.get_raw_peer_id(voter_peer)
-                                    or chats.get(utils.get_raw_peer_id(voter_peer))
-                                )
+                                users.get(utils.get_raw_peer_id(voter_peer))
+                                or chats.get(utils.get_raw_peer_id(voter_peer))
                                 for voter_peer in result.recent_voters
                             )
                         ]
