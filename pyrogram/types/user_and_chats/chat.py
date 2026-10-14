@@ -1134,9 +1134,16 @@ class Chat(Object):
         chats: dict[int, raw.base.Chat],
     ) -> raw.base.User | raw.base.Chat | None:
         if isinstance(peer, utils.PEERS_WITH_A_USER_ID):
-            return users.get(peer.user_id)
+            found = users.get(peer.user_id)
+        else:
+            found = chats.get(utils.get_raw_peer_id(peer))
 
-        return chats.get(utils.get_raw_peer_id(peer))
+        # `users.getUsers` answers `userEmpty` for an id with no user behind it, and the
+        #  message parsers merge that answer into `users`, so an empty entity is a missing one.
+        if isinstance(found, (raw.types.UserEmpty, raw.types.ChatEmpty)):
+            return None
+
+        return found
 
     @staticmethod
     async def _parse_full_user(

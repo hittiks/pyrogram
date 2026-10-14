@@ -47,3 +47,38 @@ async def test_a_folder_holding_self_keeps_an_empty_slot_for_it() -> None:
     parsed = await types.Folder._parse(client, folder, {}, {})
 
     assert parsed.included_chats == [None]
+
+
+@pytest.mark.asyncio
+async def test_a_folder_holding_an_empty_user_or_chat_keeps_an_empty_slot_for_it() -> None:
+    folder = raw.types.DialogFilter(
+        id=2,
+        title=raw.types.TextWithEntities(
+            text="Folder",
+            entities=[],
+        ),
+        pinned_peers=[],
+        include_peers=[
+            raw.types.InputPeerUser(
+                user_id=3,
+                access_hash=0,
+            ),
+            raw.types.InputPeerChat(chat_id=4),
+        ],
+        exclude_peers=[],
+    )
+    client = pyrogram.Client(
+        "test",
+        api_id=1,
+        api_hash="0" * 32,
+        in_memory=True,
+    )
+
+    parsed = await types.Folder._parse(
+        client,
+        folder,
+        {3: raw.types.UserEmpty(id=3)},
+        {4: raw.types.ChatEmpty(id=4)},
+    )
+
+    assert parsed.included_chats == [None, None]

@@ -347,3 +347,31 @@ async def test_the_chat_is_the_peer_and_not_the_sender(kind: str) -> None:
     )
 
     assert parsed.chat.type == enums.ChatType.CHANNEL
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [
+        pytest.param("message", id="message"),
+        pytest.param("service", id="service"),
+        pytest.param("ephemeral", id="ephemeral"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_a_sender_answered_as_user_empty_is_left_out(kind: str) -> None:
+    # The `users.getUsers` fallback merges `userEmpty` for a sender with no user behind it.
+    #  The id differs from `USER_ID`, which an ephemeral message names as its receiver.
+    sender_id: int = USER_ID + 1
+
+    parsed = await types.Message._parse(
+        client(),
+        raw_message_of_kind(kind, from_id=raw.types.PeerUser(user_id=sender_id)),
+        users={sender_id: raw.types.UserEmpty(id=sender_id)},
+        chats={CHANNEL_ID: broadcast_channel()},
+    )
+
+    assert (parsed.chat.type, parsed.from_user, parsed.sender_chat) == (
+        enums.ChatType.CHANNEL,
+        None,
+        None,
+    )
