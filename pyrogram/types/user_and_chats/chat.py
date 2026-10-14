@@ -1138,8 +1138,8 @@ class Chat(Object):
         else:
             found = chats.get(utils.get_raw_peer_id(peer))
 
-        # `users.getUsers` answers `userEmpty` for an id with no user behind it, and the
-        #  message parsers merge that answer into `users`, so an empty entity is a missing one.
+        # Telegram answers `userEmpty` or `chatEmpty` for an id with nothing behind it,
+        #  so an empty entity is a missing one.
         if isinstance(found, (raw.types.UserEmpty, raw.types.ChatEmpty)):
             return None
 

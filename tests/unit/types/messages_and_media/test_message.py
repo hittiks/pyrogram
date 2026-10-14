@@ -359,7 +359,7 @@ async def test_the_chat_is_the_peer_and_not_the_sender(kind: str) -> None:
 )
 @pytest.mark.asyncio
 async def test_a_sender_answered_as_user_empty_is_left_out(kind: str) -> None:
-    # The `users.getUsers` fallback merges `userEmpty` for a sender with no user behind it.
+    # Telegram answers `userEmpty` for a sender with no user behind it.
     #  The id differs from `USER_ID`, which an ephemeral message names as its receiver.
     sender_id: int = USER_ID + 1
 
@@ -375,3 +375,81 @@ async def test_a_sender_answered_as_user_empty_is_left_out(kind: str) -> None:
         None,
         None,
     )
+
+
+def raw_private_message_of_kind(
+    kind: str,
+    *,
+    sender_id: int,
+    peer_id: int,
+) -> raw.types.MessageService | raw.types.EphemeralMessage:
+    if kind == "service":
+        return raw.types.MessageService(
+            id=1,
+            peer_id=raw.types.PeerUser(user_id=peer_id),
+            from_id=raw.types.PeerUser(user_id=sender_id),
+            date=DATE,
+            action=raw.types.MessageActionGramTransfer(
+                transaction_id="tx",
+                peer_address="address",
+                amount=1,
+            ),
+        )
+
+    return raw.types.EphemeralMessage(
+        id=1,
+        from_id=raw.types.PeerUser(user_id=sender_id),
+        peer_id=raw.types.PeerUser(user_id=peer_id),
+        receiver_id=sender_id,
+        date=DATE,
+        message="hi",
+    )
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [
+        pytest.param("service", id="ton-wallet-transfer"),
+        pytest.param("ephemeral", id="ephemeral-receiver"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_a_user_fetched_as_user_empty_is_left_out_of_every_field(
+    kind: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The sender is missing from `users`, so the parser asks `users.getUsers`, which answers
+    #  `userEmpty` for it. Fields other than the sender read that entry too.
+    sender_id: int = USER_ID + 1
+    peer = raw.types.User(
+        id=USER_ID,
+        first_name="User",
+        access_hash=0,
+    )
+    app = client()
+
+    async def resolve_peer(peer_id: int) -> raw.types.InputPeerUser:
+        return raw.types.InputPeerUser(
+            user_id=peer_id,
+            access_hash=0,
+        )
+
+    async def invoke(query: raw.functions.users.GetUsers) -> list[raw.base.User]:
+        return [raw.types.UserEmpty(id=sender_id), peer]
+
+    monkeypatch.setattr(app, "resolve_peer", resolve_peer)
+    monkeypatch.setattr(app, "invoke", invoke)
+
+    parsed = await types.Message._parse(
+        app,
+        raw_private_message_of_kind(
+            kind,
+            sender_id=sender_id,
+            peer_id=USER_ID,
+        ),
+        users={USER_ID: peer},
+        chats={},
+    )
+
+    other = parsed.ton_wallet_transfer.sender if kind == "service" else parsed.receiver_user
+    assert (parsed.chat.id, parsed.from_user, other) == (USER_ID, None, None)

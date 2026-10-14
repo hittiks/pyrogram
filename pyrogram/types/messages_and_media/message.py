@@ -1046,6 +1046,39 @@ class Message(Object, Update):
         self.raw = raw
 
     @staticmethod
+    async def _fetch_private_chat_users(
+        client: pyrogram.Client,
+        *,
+        message: raw.types.Message | raw.types.MessageService | raw.types.EphemeralMessage,
+        users: dict[int, raw.base.User],
+    ) -> None:
+        sender, peer = message.from_id, message.peer_id
+
+        if not (isinstance(sender, raw.types.PeerUser) and isinstance(peer, raw.types.PeerUser)):
+            return
+
+        if sender.user_id in users and peer.user_id in users:
+            return
+
+        try:
+            fetched = await client.invoke(
+                raw.functions.users.GetUsers(
+                    id=[
+                        await client.resolve_peer(sender.user_id),
+                        await client.resolve_peer(peer.user_id),
+                    ]
+                )
+            )
+        except PeerIdInvalid:
+            return
+
+        # `users.getUsers` answers `userEmpty` for an id with no user behind it, and
+        #  the user parsers reject that, so it stays missing, as for any absent user.
+        users.update(
+            {user.id: user for user in fetched if isinstance(user, raw.types.User)},
+        )
+
+    @staticmethod
     async def _parse_service(
         client: pyrogram.Client,
         message: raw.types.MessageService,
@@ -1058,23 +1091,11 @@ class Message(Object, Update):
         from_id = utils.get_raw_peer_id(message.from_id)
         peer_id = utils.get_raw_peer_id(message.peer_id)
 
-        if isinstance(message.from_id, raw.types.PeerUser) and isinstance(
-            message.peer_id, raw.types.PeerUser
-        ):
-            if from_id not in users or peer_id not in users:
-                try:
-                    r = await client.invoke(
-                        raw.functions.users.GetUsers(
-                            id=[
-                                await client.resolve_peer(from_id),
-                                await client.resolve_peer(peer_id),
-                            ]
-                        )
-                    )
-                except PeerIdInvalid:
-                    pass
-                else:
-                    users.update({i.id: i for i in r})
+        await Message._fetch_private_chat_users(
+            client,
+            message=message,
+            users=users,
+        )
 
         # User and channel ids overlap, so the sender is a user only when its own peer says so.
         raw_sender = types.Chat._find_message_chat(
@@ -1635,26 +1656,11 @@ class Message(Object, Update):
         guest_query_id: str | None = None,
         raw_reply_to_message: raw.base.Message | None = None,
     ) -> Message:
-        from_id = utils.get_raw_peer_id(message.from_id)
-        peer_id = utils.get_raw_peer_id(message.peer_id)
-
-        if isinstance(message.from_id, raw.types.PeerUser) and isinstance(
-            message.peer_id, raw.types.PeerUser
-        ):
-            if from_id not in users or peer_id not in users:
-                try:
-                    r = await client.invoke(
-                        raw.functions.users.GetUsers(
-                            id=[
-                                await client.resolve_peer(from_id),
-                                await client.resolve_peer(peer_id),
-                            ]
-                        )
-                    )
-                except PeerIdInvalid:
-                    pass
-                else:
-                    users.update({i.id: i for i in r})
+        await Message._fetch_private_chat_users(
+            client,
+            message=message,
+            users=users,
+        )
 
         # User and channel ids overlap, so the sender is a user only when its own peer says so.
         raw_sender = types.Chat._find_message_chat(
@@ -2125,26 +2131,11 @@ class Message(Object, Update):
         chats: dict[int, raw.base.Chat],
         replies: int = 1,
     ) -> Message:
-        from_id = utils.get_raw_peer_id(message.from_id)
-        peer_id = utils.get_raw_peer_id(message.peer_id)
-
-        if isinstance(message.from_id, raw.types.PeerUser) and isinstance(
-            message.peer_id, raw.types.PeerUser
-        ):
-            if from_id not in users or peer_id not in users:
-                try:
-                    r = await client.invoke(
-                        raw.functions.users.GetUsers(
-                            id=[
-                                await client.resolve_peer(from_id),
-                                await client.resolve_peer(peer_id),
-                            ]
-                        )
-                    )
-                except PeerIdInvalid:
-                    pass
-                else:
-                    users.update({i.id: i for i in r})
+        await Message._fetch_private_chat_users(
+            client,
+            message=message,
+            users=users,
+        )
 
         # User and channel ids overlap, so the sender is a user only when its own peer says so.
         raw_sender = types.Chat._find_message_chat(
