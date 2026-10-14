@@ -453,3 +453,50 @@ async def test_a_user_fetched_as_user_empty_is_left_out_of_every_field(
 
     other = parsed.ton_wallet_transfer.sender if kind == "service" else parsed.receiver_user
     assert (parsed.chat.id, parsed.from_user, other) == (USER_ID, None, None)
+
+
+@pytest.mark.parametrize(
+    ("via", "expected"),
+    [
+        pytest.param(raw.types.PeerUser(user_id=CHANNEL_ID), (CHANNEL_ID, None), id="user"),
+        pytest.param(
+            raw.types.PeerChannel(channel_id=CHANNEL_ID),
+            (None, enums.ChatType.CHANNEL),
+            id="channel",
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_the_guest_bot_caller_is_looked_up_by_its_own_peer_type(
+    *,
+    via: raw.base.Peer,
+    expected: tuple[int | None, enums.ChatType | None],
+) -> None:
+    # The caller's raw id was read from both maps, so a user sharing it with a channel
+    #  named the channel as the calling chat too, and the other way round.
+    user = raw.types.User(
+        id=CHANNEL_ID,
+        first_name="User",
+        access_hash=0,
+    )
+    raw_message = raw.types.Message(
+        id=1,
+        peer_id=raw.types.PeerChannel(channel_id=CHANNEL_ID),
+        date=DATE,
+        message="hi",
+        entities=[],
+        restriction_reason=[],
+        guestchat_via_from=via,
+    )
+
+    parsed = await types.Message._parse(
+        client(),
+        raw_message,
+        users={CHANNEL_ID: user},
+        chats={CHANNEL_ID: broadcast_channel()},
+    )
+
+    assert (
+        parsed.guest_bot_caller_user.id if parsed.guest_bot_caller_user else None,
+        parsed.guest_bot_caller_chat.type if parsed.guest_bot_caller_chat else None,
+    ) == expected

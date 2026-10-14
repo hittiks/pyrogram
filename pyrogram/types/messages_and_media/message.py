@@ -1935,9 +1935,25 @@ class Message(Object, Update):
 
         raw_sender_business_bot = users.get(getattr(message, "via_business_bot_id", None))
         raw_via_bot = users.get(message.via_bot_id)
-        guest_bot_caller_id = utils.get_raw_peer_id(message.guestchat_via_from)
-        raw_guest_bot_caller_user = users.get(guest_bot_caller_id)
-        raw_guest_bot_caller_chat = chats.get(guest_bot_caller_id)
+        # User and channel ids overlap, so the caller's own peer picks the map it is read from.
+        raw_guest_bot_caller = (
+            types.Chat._find_peer_chat(
+                message.guestchat_via_from,
+                users=users,
+                chats=chats,
+            )
+            if message.guestchat_via_from is not None
+            else None
+        )
+        raw_guest_bot_caller_user = (
+            raw_guest_bot_caller if isinstance(raw_guest_bot_caller, raw.types.User) else None
+        )
+        raw_guest_bot_caller_chat = (
+            raw_guest_bot_caller
+            if raw_guest_bot_caller is not None
+            and not isinstance(raw_guest_bot_caller, raw.types.User)
+            else None
+        )
 
         parsed_message = Message(
             id=message.id,
