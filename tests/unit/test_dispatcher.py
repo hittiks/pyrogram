@@ -54,6 +54,19 @@ _UNPARSED_UPDATE: Final[raw.types.UpdateShort] = raw.types.UpdateShort(
     date=0,
 )
 
+_GROUP_ID: Final[int] = 7
+_EMPTY_ID: Final[int] = 8
+_SENDER_ID: Final[int] = 9
+
+_GROUP: Final[raw.types.Chat] = raw.types.Chat(
+    id=_GROUP_ID,
+    title="Group",
+    photo=raw.types.ChatPhotoEmpty(),
+    participants_count=2,
+    date=1,
+    version=1,
+)
+
 
 # The dispatcher calls a handler callback positionally.
 async def greet(client: Client, message: Message, /) -> None:
@@ -400,6 +413,103 @@ async def test_every_route_delivers_once_started(
     await client_with_storage.dispatcher.stop()
 
     assert sorted(received) == delivered
+
+
+def _updates_with_an_empty_entity(kind: str) -> raw.types.Updates:
+    """A group message reading the empty entity Telegram listed beside it in the update."""
+    if kind == "user":
+        # A TON wallet transfer reads its `sender` from `users` by the sender's id.
+        message: raw.base.Message = raw.types.MessageService(
+            id=1,
+            peer_id=raw.types.PeerChat(chat_id=_GROUP_ID),
+            from_id=raw.types.PeerUser(user_id=_EMPTY_ID),
+            date=1,
+            action=raw.types.MessageActionGramTransfer(
+                transaction_id="transaction",
+                peer_address="address",
+                amount=1,
+            ),
+        )
+        users: list[raw.base.User] = [raw.types.UserEmpty(id=_EMPTY_ID)]
+        chats: list[raw.base.Chat] = [_GROUP]
+    else:
+        # `guest_bot_caller_chat` reads `chats` by the id of `guestchat_via_from`.
+        message = raw.types.Message(
+            id=1,
+            peer_id=raw.types.PeerChat(chat_id=_GROUP_ID),
+            from_id=raw.types.PeerUser(user_id=_SENDER_ID),
+            guestchat_via_from=raw.types.PeerChat(chat_id=_EMPTY_ID),
+            date=1,
+            message="text",
+            # What `Message.read` gives for an absent flag, and what the parser iterates.
+            restriction_reason=[],
+        )
+        users = [
+            raw.types.User(
+                id=_SENDER_ID,
+                first_name="Sender",
+                access_hash=0,
+            ),
+        ]
+        chats = [_GROUP, raw.types.ChatEmpty(id=_EMPTY_ID)]
+
+    update = raw.types.UpdateNewMessage(
+        message=message,
+        pts=2,
+        pts_count=1,
+    )
+
+    return raw.types.Updates(
+        updates=[update],
+        users=users,
+        chats=chats,
+        date=1,
+        seq=1,
+    )
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [
+        pytest.param("user", id="user-empty"),
+        pytest.param("chat", id="chat-empty"),
+    ],
+)
+async def test_an_empty_entity_in_an_update_reaches_parsers_as_a_missing_one(
+    client_with_storage: Client,
+    kind: str,
+) -> None:
+    # The strict parsers raise on `userEmpty` and `chatEmpty`, which dropped the whole
+    #  update, raw handlers included; on `main` the field was `None`.
+    messages: list[Message] = []
+    raw_entities: list[str] = []
+
+    async def record_message(client: Client, message: Message, /) -> None:
+        messages.append(message)
+
+    async def record_raw(
+        client: Client,
+        update: raw.base.Update,
+        users: dict[int, raw.base.User],
+        chats: dict[int, raw.base.Chat],
+        /,
+    ) -> None:
+        raw_entities.extend(type(entity).__name__ for entity in [*users.values(), *chats.values()])
+
+    client_with_storage.add_handler(MessageHandler(record_message), group=0)
+    client_with_storage.add_handler(RawUpdateHandler(record_raw), group=1)
+
+    await client_with_storage.dispatcher.start()
+    await client_with_storage.handle_updates(_updates_with_an_empty_entity(kind))
+    await client_with_storage.dispatcher.stop()
+
+    [message] = messages
+    empty_field = (
+        message.ton_wallet_transfer.sender if kind == "user" else message.guest_bot_caller_chat
+    )
+    empty_name = "UserEmpty" if kind == "user" else "ChatEmpty"
+
+    assert (message.chat.id, empty_field, empty_name in raw_entities) == (-_GROUP_ID, None, True)
 
 
 @pytest.fixture

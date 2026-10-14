@@ -22,7 +22,7 @@ import asyncio
 import inspect
 import logging
 import threading
-from typing import Any
+from typing import Any, TypeVar
 
 import pyrogram
 from pyrogram import raw, utils
@@ -97,6 +97,9 @@ from pyrogram.raw.types import (
 )
 
 log = logging.getLogger(__name__)
+
+# A `TypeVar` rather than the 3.12 syntax because `requires-python` is `>=3.10`.
+_Entity = TypeVar("_Entity")
 
 
 class Dispatcher:
@@ -456,6 +459,23 @@ class Dispatcher:
         """A copy the registration methods edit, so a dispatching worker keeps the old one."""
         return {group: list(handlers) for group, handlers in self.groups.items()}
 
+    @staticmethod
+    def _without_empty(
+        entities: dict[int, _Entity],
+        *,
+        empty: type[raw.types.UserEmpty | raw.types.ChatEmpty],
+    ) -> dict[int, _Entity]:
+        """The entities a parser reads, with `empty` taken as a missing entity."""
+        if not any(isinstance(entity, empty) for entity in entities.values()):
+            # The same dict, so a user a parser fetches into it still reaches raw handlers.
+            return entities
+
+        return {
+            entity_id: entity
+            for entity_id, entity in entities.items()
+            if not isinstance(entity, empty)
+        }
+
     async def handler_worker(self) -> None:
         while True:
             packet = await self.updates_queue.get()
@@ -467,8 +487,17 @@ class Dispatcher:
                 update, users, chats = packet
                 parser = self.update_parsers.get(type(update), None)
 
+                # Telegram lists `userEmpty` or `chatEmpty` for an id with nothing behind it,
+                #  and the parsers reject both, so the whole update was dropped. Parsers see
+                #  them as missing; raw handlers still get them, as `RawUpdateHandler` documents.
                 parsed_update, handler_type = (
-                    await parser(update, users, chats) if parser is not None else (None, type(None))
+                    await parser(
+                        update,
+                        self._without_empty(users, empty=raw.types.UserEmpty),
+                        self._without_empty(chats, empty=raw.types.ChatEmpty),
+                    )
+                    if parser is not None
+                    else (None, type(None))
                 )
 
                 for group in self.groups.values():
