@@ -467,7 +467,7 @@ class Dispatcher:
     ) -> dict[int, _Entity]:
         """The entities a parser reads, with `empty` taken as a missing entity."""
         if not any(isinstance(entity, empty) for entity in entities.values()):
-            # The same dict, so a user a parser fetches into it still reaches raw handlers.
+            # Nothing to drop, so no copy and nothing for `_keep_fetched` to bring back.
             return entities
 
         return {
@@ -475,6 +475,22 @@ class Dispatcher:
             for entity_id, entity in entities.items()
             if not isinstance(entity, empty)
         }
+
+    @staticmethod
+    def _keep_fetched(entities: dict[int, _Entity], *, parsed: dict[int, _Entity]) -> None:
+        """Copy into `entities` what a parser fetched into `parsed`, its copy without empties."""
+        if parsed is entities:
+            return
+
+        # A private message parser fetches a user missing from the update into the
+        #  dict it reads; raw handlers got that user before the copy, so they still do.
+        entities.update(
+            {
+                entity_id: entity
+                for entity_id, entity in parsed.items()
+                if entity_id not in entities
+            },
+        )
 
     async def handler_worker(self) -> None:
         while True:
@@ -490,15 +506,15 @@ class Dispatcher:
                 # Telegram lists `userEmpty` or `chatEmpty` for an id with nothing behind it,
                 #  and the parsers reject both, so the whole update was dropped. Parsers see
                 #  them as missing; raw handlers still get them, as `RawUpdateHandler` documents.
+                parsed_users = self._without_empty(users, empty=raw.types.UserEmpty)
+                parsed_chats = self._without_empty(chats, empty=raw.types.ChatEmpty)
                 parsed_update, handler_type = (
-                    await parser(
-                        update,
-                        self._without_empty(users, empty=raw.types.UserEmpty),
-                        self._without_empty(chats, empty=raw.types.ChatEmpty),
-                    )
+                    await parser(update, parsed_users, parsed_chats)
                     if parser is not None
                     else (None, type(None))
                 )
+                self._keep_fetched(users, parsed=parsed_users)
+                self._keep_fetched(chats, parsed=parsed_chats)
 
                 for group in self.groups.values():
                     for handler in group:

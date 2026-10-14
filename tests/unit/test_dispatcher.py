@@ -73,6 +73,7 @@ _UNPARSED_UPDATE: Final[raw.types.UpdateShort] = raw.types.UpdateShort(
 _GROUP_ID: Final[int] = 7
 _EMPTY_ID: Final[int] = 8
 _SENDER_ID: Final[int] = 9
+_RECIPIENT_ID: Final[int] = 10
 
 _GROUP: Final[raw.types.Chat] = raw.types.Chat(
     id=_GROUP_ID,
@@ -526,6 +527,84 @@ async def test_an_empty_entity_in_an_update_reaches_parsers_as_a_missing_one(
     empty_name = "UserEmpty" if kind == "user" else "ChatEmpty"
 
     assert (message.chat.id, empty_field, empty_name in raw_entities) == (-_GROUP_ID, None, True)
+
+
+@pytest.mark.parametrize(
+    "listed",
+    [
+        pytest.param([], id="no-empty-entity"),
+        pytest.param([raw.types.UserEmpty(id=_EMPTY_ID)], id="user-empty"),
+    ],
+)
+async def test_a_user_a_parser_fetches_reaches_raw_handlers(
+    client_with_storage: Client,
+    monkeypatch: pytest.MonkeyPatch,
+    listed: list[raw.base.User],
+) -> None:
+    # A private message parser fetches a sender missing from the update. With an empty
+    #  entity listed, the parser read a copy, so raw handlers lost the fetched sender.
+    recipient = raw.types.User(
+        id=_RECIPIENT_ID,
+        first_name="Recipient",
+        access_hash=0,
+    )
+    sender = raw.types.User(
+        id=_SENDER_ID,
+        first_name="Sender",
+        access_hash=0,
+    )
+
+    async def resolve_peer(peer_id: int) -> raw.types.InputPeerUser:
+        return raw.types.InputPeerUser(
+            user_id=peer_id,
+            access_hash=0,
+        )
+
+    async def invoke(query: raw.functions.users.GetUsers) -> list[raw.base.User]:
+        return [sender, recipient]
+
+    monkeypatch.setattr(client_with_storage, "resolve_peer", resolve_peer)
+    monkeypatch.setattr(client_with_storage, "invoke", invoke)
+
+    raw_user_ids: list[int] = []
+
+    async def record_raw(
+        client: Client,
+        update: raw.base.Update,
+        users: dict[int, raw.base.User],
+        chats: dict[int, raw.base.Chat],
+        /,
+    ) -> None:
+        raw_user_ids.extend(users)
+
+    client_with_storage.add_handler(RawUpdateHandler(record_raw))
+
+    await client_with_storage.dispatcher.start()
+    await client_with_storage.handle_updates(
+        raw.types.Updates(
+            updates=[
+                raw.types.UpdateNewMessage(
+                    message=raw.types.Message(
+                        id=1,
+                        peer_id=raw.types.PeerUser(user_id=_RECIPIENT_ID),
+                        from_id=raw.types.PeerUser(user_id=_SENDER_ID),
+                        date=1,
+                        message="text",
+                        restriction_reason=[],
+                    ),
+                    pts=2,
+                    pts_count=1,
+                ),
+            ],
+            users=[recipient, *listed],
+            chats=[],
+            date=1,
+            seq=1,
+        ),
+    )
+    await client_with_storage.dispatcher.stop()
+
+    assert _SENDER_ID in raw_user_ids
 
 
 def _service_from(action: raw.base.MessageAction, *, sender_id: int) -> raw.types.UpdateNewMessage:
