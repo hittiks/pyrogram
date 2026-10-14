@@ -19,14 +19,39 @@
 
 from __future__ import annotations as _annotations
 
+from typing import Final
+
 import pytest
 
 import pyrogram
 from pyrogram import raw, types
 
 
+_SENDER_ID: Final[int] = 7
+
+
+@pytest.mark.parametrize(
+    ("users", "expected"),
+    [
+        pytest.param({}, None, id="missing"),
+        pytest.param(
+            {
+                _SENDER_ID: raw.types.User(
+                    id=_SENDER_ID,
+                    first_name="Sender",
+                ),
+            },
+            _SENDER_ID,
+            id="known",
+        ),
+    ],
+)
 @pytest.mark.asyncio
-async def test_a_transfer_whose_sender_is_not_in_users_has_no_sender() -> None:
+async def test_a_transfer_names_its_sender_only_when_users_has_it(
+    users: dict[int, raw.base.User],
+    *,
+    expected: int | None,
+) -> None:
     action = raw.types.MessageActionGramTransfer(
         amount=1,
         peer_address="address",
@@ -39,6 +64,6 @@ async def test_a_transfer_whose_sender_is_not_in_users_has_no_sender() -> None:
         in_memory=True,
     )
 
-    parsed = await types.TonWalletTransfer._parse(client, action, 99, {})
+    parsed = await types.TonWalletTransfer._parse(client, action, _SENDER_ID, users)
 
-    assert parsed.sender is None
+    assert getattr(parsed.sender, "id", None) == expected

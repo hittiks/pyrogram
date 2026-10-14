@@ -19,18 +19,43 @@
 
 from __future__ import annotations as _annotations
 
+from typing import Final
+
 import pytest
 
 import pyrogram
 from pyrogram import raw, types
 
 
+_USER_ID: Final[int] = 7
+
+
+@pytest.mark.parametrize(
+    ("users", "expected"),
+    [
+        pytest.param({}, None, id="missing"),
+        pytest.param(
+            {
+                _USER_ID: raw.types.User(
+                    id=_USER_ID,
+                    first_name="Owner",
+                ),
+            },
+            _USER_ID,
+            id="known",
+        ),
+    ],
+)
 @pytest.mark.asyncio
-async def test_an_address_whose_user_is_not_in_users_has_no_user() -> None:
+async def test_an_address_names_its_user_only_when_users_has_it(
+    users: dict[int, raw.base.User],
+    *,
+    expected: int | None,
+) -> None:
     address = raw.types.WalletUserAddress(
         address="address",
         public_key=b"key",
-        user_id=99,
+        user_id=_USER_ID,
     )
     client = pyrogram.Client(
         "test",
@@ -39,6 +64,6 @@ async def test_an_address_whose_user_is_not_in_users_has_no_user() -> None:
         in_memory=True,
     )
 
-    parsed = await types.UserTonWalletAddress._parse(client, address, {})
+    parsed = await types.UserTonWalletAddress._parse(client, address, users)
 
-    assert parsed.user is None
+    assert getattr(parsed.user, "id", None) == expected
