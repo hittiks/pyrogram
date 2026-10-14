@@ -22,7 +22,7 @@ import asyncio
 import inspect
 import logging
 import threading
-from typing import Any, TypeVar
+from typing import Any
 
 import pyrogram
 from pyrogram import raw, utils
@@ -97,9 +97,6 @@ from pyrogram.raw.types import (
 )
 
 log = logging.getLogger(__name__)
-
-# A `TypeVar` rather than the 3.12 syntax because `requires-python` is `>=3.10`.
-_Entity = TypeVar("_Entity")
 
 
 class Dispatcher:
@@ -459,39 +456,6 @@ class Dispatcher:
         """A copy the registration methods edit, so a dispatching worker keeps the old one."""
         return {group: list(handlers) for group, handlers in self.groups.items()}
 
-    @staticmethod
-    def _without_empty(
-        entities: dict[int, _Entity],
-        *,
-        empty: type[raw.types.UserEmpty | raw.types.ChatEmpty],
-    ) -> dict[int, _Entity]:
-        """The entities a parser reads, with `empty` taken as a missing entity."""
-        if not any(isinstance(entity, empty) for entity in entities.values()):
-            # Nothing to drop, so no copy and nothing for `_keep_fetched` to bring back.
-            return entities
-
-        return {
-            entity_id: entity
-            for entity_id, entity in entities.items()
-            if not isinstance(entity, empty)
-        }
-
-    @staticmethod
-    def _keep_fetched(entities: dict[int, _Entity], *, parsed: dict[int, _Entity]) -> None:
-        """Copy into `entities` what a parser fetched into `parsed`, its copy without empties."""
-        if parsed is entities:
-            return
-
-        # A private message parser fetches a user missing from the update into the
-        #  dict it reads; raw handlers got that user before the copy, so they still do.
-        entities.update(
-            {
-                entity_id: entity
-                for entity_id, entity in parsed.items()
-                if entity_id not in entities
-            },
-        )
-
     async def handler_worker(self) -> None:
         while True:
             packet = await self.updates_queue.get()
@@ -506,15 +470,25 @@ class Dispatcher:
                 # Telegram lists `userEmpty` or `chatEmpty` for an id with nothing behind it,
                 #  and the parsers reject both, so the whole update was dropped. Parsers see
                 #  them as missing; raw handlers still get them, as `RawUpdateHandler` documents.
-                parsed_users = self._without_empty(users, empty=raw.types.UserEmpty)
-                parsed_chats = self._without_empty(chats, empty=raw.types.ChatEmpty)
+                parsed_users = {
+                    user_id: user
+                    for user_id, user in users.items()
+                    if not isinstance(user, raw.types.UserEmpty)
+                }
+                parsed_chats = {
+                    chat_id: chat
+                    for chat_id, chat in chats.items()
+                    if not isinstance(chat, raw.types.ChatEmpty)
+                }
                 parsed_update, handler_type = (
                     await parser(update, parsed_users, parsed_chats)
                     if parser is not None
                     else (None, type(None))
                 )
-                self._keep_fetched(users, parsed=parsed_users)
-                self._keep_fetched(chats, parsed=parsed_chats)
+                # A parser stores the users and chats it fetches in the dicts it reads, and raw
+                #  handlers get them too. The copies lack only the empty entries, which stay.
+                users.update(parsed_users)
+                chats.update(parsed_chats)
 
                 for group in self.groups.values():
                     for handler in group:

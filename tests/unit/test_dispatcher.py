@@ -534,6 +534,9 @@ async def test_an_empty_entity_in_an_update_reaches_parsers_as_a_missing_one(
     [
         pytest.param([], id="no-empty-entity"),
         pytest.param([raw.types.UserEmpty(id=_EMPTY_ID)], id="user-empty"),
+        # The parser takes the listed sender as missing and fetches it, so raw handlers get
+        #  the fetched user, the one the parsed message names, in place of `userEmpty`.
+        pytest.param([raw.types.UserEmpty(id=_SENDER_ID)], id="sender-user-empty"),
     ],
 )
 async def test_a_user_a_parser_fetches_reaches_raw_handlers(
@@ -541,11 +544,17 @@ async def test_a_user_a_parser_fetches_reaches_raw_handlers(
     monkeypatch: pytest.MonkeyPatch,
     listed: list[raw.base.User],
 ) -> None:
-    # A private message parser fetches a sender missing from the update. With an empty
-    #  entity listed, the parser read a copy, so raw handlers lost the fetched sender.
+    # A private message parser fetches a sender missing from the update and replaces the
+    #  listed recipient with the fetched one, in a copy of `users` without the empty
+    #  entries, so raw handlers see both only if the copy is merged back.
     recipient = raw.types.User(
         id=_RECIPIENT_ID,
         first_name="Recipient",
+        access_hash=0,
+    )
+    fetched_recipient = raw.types.User(
+        id=_RECIPIENT_ID,
+        first_name="Fetched recipient",
         access_hash=0,
     )
     sender = raw.types.User(
@@ -561,12 +570,12 @@ async def test_a_user_a_parser_fetches_reaches_raw_handlers(
         )
 
     async def invoke(query: raw.functions.users.GetUsers) -> list[raw.base.User]:
-        return [sender, recipient]
+        return [sender, fetched_recipient]
 
     monkeypatch.setattr(client_with_storage, "resolve_peer", resolve_peer)
     monkeypatch.setattr(client_with_storage, "invoke", invoke)
 
-    raw_user_ids: list[int] = []
+    raw_users: dict[int, raw.base.User] = {}
 
     async def record_raw(
         client: Client,
@@ -575,7 +584,7 @@ async def test_a_user_a_parser_fetches_reaches_raw_handlers(
         chats: dict[int, raw.base.Chat],
         /,
     ) -> None:
-        raw_user_ids.extend(users)
+        raw_users.update(users)
 
     client_with_storage.add_handler(RawUpdateHandler(record_raw))
 
@@ -604,7 +613,62 @@ async def test_a_user_a_parser_fetches_reaches_raw_handlers(
     )
     await client_with_storage.dispatcher.stop()
 
-    assert _SENDER_ID in raw_user_ids
+    assert (raw_users[_SENDER_ID], raw_users[_RECIPIENT_ID]) == (sender, fetched_recipient)
+
+
+async def test_a_channel_a_parser_fetches_reaches_raw_handlers(
+    client_with_storage: Client,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A story parser fetches a channel missing from the update into the dict it reads,
+    #  which is a copy, so raw handlers see the channel only if it is copied back.
+    channel = raw.types.Channel(
+        id=_GROUP_ID,
+        title="Channel",
+        photo=raw.types.ChatPhotoEmpty(),
+        date=1,
+        access_hash=0,
+        # What `Channel.read` gives for absent flags, and what the parser iterates.
+        usernames=[],
+        restriction_reason=[],
+    )
+
+    async def invoke(query: raw.functions.channels.GetChannels) -> raw.types.messages.Chats:
+        return raw.types.messages.Chats(chats=[channel])
+
+    monkeypatch.setattr(client_with_storage, "invoke", invoke)
+
+    raw_chats: dict[int, raw.base.Chat] = {}
+
+    async def record_raw(
+        client: Client,
+        update: raw.base.Update,
+        users: dict[int, raw.base.User],
+        chats: dict[int, raw.base.Chat],
+        /,
+    ) -> None:
+        raw_chats.update(chats)
+
+    client_with_storage.add_handler(RawUpdateHandler(record_raw))
+
+    await client_with_storage.dispatcher.start()
+    await client_with_storage.handle_updates(
+        raw.types.Updates(
+            updates=[
+                raw.types.UpdateStory(
+                    peer=raw.types.PeerChannel(channel_id=_GROUP_ID),
+                    story=raw.types.StoryItemDeleted(id=1),
+                ),
+            ],
+            users=[],
+            chats=[],
+            date=1,
+            seq=1,
+        ),
+    )
+    await client_with_storage.dispatcher.stop()
+
+    assert raw_chats == {_GROUP_ID: channel}
 
 
 def _service_from(action: raw.base.MessageAction, *, sender_id: int) -> raw.types.UpdateNewMessage:
