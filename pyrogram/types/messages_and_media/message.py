@@ -1227,7 +1227,10 @@ class Message(Object, Update):
             migrate_from_chat_id = -action.chat_id
         elif isinstance(action, raw.types.MessageActionChatAddUser):
             service_type = enums.MessageServiceType.NEW_CHAT_MEMBERS
-            new_chat_members = [await types.User._parse(client, users[i]) for i in action.users]
+            new_chat_members = [
+                await types.User._parse(client, raw_user) if raw_user is not None else None
+                for raw_user in map(users.get, action.users)
+            ]
             chat_join_type = enums.ChatJoinType.BY_ADD
         elif isinstance(action, raw.types.MessageActionChatCreate):
             service_type = enums.MessageServiceType.GROUP_CHAT_CREATED
@@ -1237,7 +1240,12 @@ class Message(Object, Update):
             delete_chat_photo = True
         elif isinstance(action, raw.types.MessageActionChatDeleteUser):
             service_type = enums.MessageServiceType.LEFT_CHAT_MEMBER
-            left_chat_member = await types.User._parse(client, users[action.user_id])
+            raw_left_chat_member = users.get(action.user_id)
+            left_chat_member = (
+                await types.User._parse(client, raw_left_chat_member)
+                if raw_left_chat_member is not None
+                else None
+            )
         elif isinstance(action, raw.types.MessageActionNewCreatorPending):
             service_type = enums.MessageServiceType.CHAT_OWNER_LEFT
             chat_owner_left = await types.ChatOwnerLeft._parse(client, action, users)
@@ -1252,14 +1260,20 @@ class Message(Object, Update):
             new_chat_title = action.title
         elif isinstance(action, raw.types.MessageActionChatJoinedByLink):
             service_type = enums.MessageServiceType.NEW_CHAT_MEMBERS
+            raw_new_chat_member = users.get(utils.get_raw_peer_id(message.from_id))
             new_chat_members = [
-                await types.User._parse(client, users[utils.get_raw_peer_id(message.from_id)])
+                await types.User._parse(client, raw_new_chat_member)
+                if raw_new_chat_member is not None
+                else None
             ]
             chat_join_type = enums.ChatJoinType.BY_LINK
         elif isinstance(action, raw.types.MessageActionChatJoinedByRequest):
             service_type = enums.MessageServiceType.NEW_CHAT_MEMBERS
+            raw_new_chat_member = users.get(utils.get_raw_peer_id(message.from_id))
             new_chat_members = [
-                await types.User._parse(client, users[utils.get_raw_peer_id(message.from_id)])
+                await types.User._parse(client, raw_new_chat_member)
+                if raw_new_chat_member is not None
+                else None
             ]
             chat_join_type = enums.ChatJoinType.BY_REQUEST
         elif isinstance(action, raw.types.MessageActionChatMigrateTo):

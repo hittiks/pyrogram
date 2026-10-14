@@ -109,9 +109,8 @@ class ChatInviteLink(Object):
         invite: raw.types.ChatInviteExported,
         users: dict[int, raw.types.User] | None = None,
     ) -> ChatInviteLink:
-        creator = (
-            await types.User._parse(client, users[invite.admin_id]) if users is not None else None
-        )
+        raw_creator = users.get(invite.admin_id) if users is not None else None
+        creator = await types.User._parse(client, raw_creator) if raw_creator is not None else None
 
         return ChatInviteLink(
             invite_link=invite.link,

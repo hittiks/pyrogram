@@ -383,7 +383,12 @@ class Story(Object, Update):
             fwd_peer_id = utils.get_peer_id(forward_header.from_peer)
 
             if fwd_peer_id > 0:
-                forward_from = await types.User._parse(client, users[fwd_raw_peer_id])
+                raw_forward_from = users.get(fwd_raw_peer_id)
+                forward_from = (
+                    await types.User._parse(client, raw_forward_from)
+                    if raw_forward_from is not None
+                    else None
+                )
             else:
                 forward_from_chat = await types.Chat._parse_channel_chat(
                     client, chats[fwd_raw_peer_id]

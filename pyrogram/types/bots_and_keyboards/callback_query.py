@@ -151,9 +151,13 @@ class CallbackQuery(Object, Update):
             except (UnicodeDecodeError, AttributeError):
                 pass
 
+        raw_from_user = users.get(callback_query.user_id)
+
         return CallbackQuery(
             id=str(callback_query.query_id),
-            from_user=await types.User._parse(client, users[callback_query.user_id]),
+            from_user=await types.User._parse(client, raw_from_user)
+            if raw_from_user is not None
+            else None,
             message=message,
             inline_message_id=inline_message_id,
             chat_instance=str(callback_query.chat_instance)

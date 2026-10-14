@@ -328,6 +328,8 @@ class Poll(Object, Update):
             )
 
         if isinstance(update, raw.types.UpdateMessagePollVote):
+            raw_voter = users.get(update.peer.user_id)
+
             return Poll(
                 id=str(update.poll_id),
                 options=[
@@ -335,7 +337,7 @@ class Poll(Object, Update):
                     for option in update.options
                 ],
                 is_closed=False,
-                voter=await types.User._parse(client, users[update.peer.user_id]),
+                voter=await types.User._parse(client, raw_voter) if raw_voter is not None else None,
                 client=client,
             )
 
