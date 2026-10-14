@@ -500,3 +500,96 @@ async def test_the_guest_bot_caller_is_looked_up_by_its_own_peer_type(
         parsed.guest_bot_caller_user.id if parsed.guest_bot_caller_user else None,
         parsed.guest_bot_caller_chat.type if parsed.guest_bot_caller_chat else None,
     ) == expected
+
+
+@pytest.mark.parametrize(
+    "raw_message",
+    [
+        pytest.param(
+            raw.types.Message(
+                id=1,
+                peer_id=raw.types.PeerChannel(channel_id=CHANNEL_ID),
+                date=DATE,
+                message="see https://example.com/page",
+                entities=[],
+                restriction_reason=[],
+                invert_media=True,
+            ),
+            id="message",
+        ),
+        pytest.param(
+            raw.types.EphemeralMessage(
+                id=1,
+                from_id=raw.types.PeerChannel(channel_id=CHANNEL_ID),
+                peer_id=raw.types.PeerChannel(channel_id=CHANNEL_ID),
+                receiver_id=USER_ID,
+                date=DATE,
+                message="see https://example.com/page",
+            ),
+            id="ephemeral",
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_a_url_without_a_preview_gives_disabled_preview_options(
+    raw_message: raw.types.Message | raw.types.EphemeralMessage,
+) -> None:
+    # `LinkPreviewOptions._parse` maps only a web page, so the message parser builds
+    #  the disabled options for a URL Telegram sent no preview for.
+    parsed = await types.Message._parse(
+        client(),
+        raw_message,
+        users={},
+        chats={CHANNEL_ID: broadcast_channel()},
+    )
+
+    options = parsed.link_preview_options
+    assert (options.is_disabled, options.url, options.show_above_text) == (
+        True,
+        "https://example.com/page",
+        True if isinstance(raw_message, raw.types.Message) else None,
+    )
+
+
+@pytest.mark.parametrize(
+    ("forward_header", "expected"),
+    [
+        pytest.param(
+            raw.types.MessageFwdHeader(
+                date=DATE,
+                imported=True,
+                post_author="Importer",
+            ),
+            (types.MessageOriginImport, "Importer"),
+            id="imported",
+        ),
+        pytest.param(raw.types.MessageFwdHeader(date=DATE), None, id="no-origin"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_a_forward_origin_is_parsed_only_for_a_header_naming_one(
+    *,
+    forward_header: raw.types.MessageFwdHeader,
+    expected: tuple[type[types.MessageOrigin], str] | None,
+) -> None:
+    # `MessageOrigin._parse` falls through to an import, so the caller passes only a
+    #  header with a sender, a sender name or the import flag.
+    raw_message = raw.types.Message(
+        id=1,
+        peer_id=raw.types.PeerChannel(channel_id=CHANNEL_ID),
+        date=DATE,
+        message="hi",
+        entities=[],
+        restriction_reason=[],
+        fwd_from=forward_header,
+    )
+
+    parsed = await types.Message._parse(
+        client(),
+        raw_message,
+        users={},
+        chats={CHANNEL_ID: broadcast_channel()},
+    )
+
+    origin = parsed.forward_origin
+    assert ((type(origin), origin.sender_user_name) if origin is not None else None) == expected
