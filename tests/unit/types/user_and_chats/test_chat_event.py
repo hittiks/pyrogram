@@ -29,6 +29,10 @@ from pyrogram import raw, types
 
 _ADMIN_ID: Final[int] = 7
 _ABSENT_ID: Final[int] = 99
+_MEMBER_ID: Final[int] = 8
+_OLD_CHANNEL_ID: Final[int] = 9
+_NEW_CHANNEL_ID: Final[int] = 10
+_LINK: Final[str] = "https://t.me/+link"
 _ADMIN: Final[raw.types.User] = raw.types.User(
     id=_ADMIN_ID,
     first_name="Admin",
@@ -333,3 +337,122 @@ async def test_a_revoked_or_deleted_invite_link_is_parsed(
 
     # Without the `await` the field held an unawaited coroutine instead of the link.
     assert attrgetter(path)(parsed) == "https://t.me/+old"
+
+
+def _channel(channel_id: int) -> raw.types.Channel:
+    return raw.types.Channel(
+        id=channel_id,
+        title=f"Channel {channel_id}",
+        photo=raw.types.ChatPhotoEmpty(),
+        date=0,
+        broadcast=True,
+        access_hash=1,
+        usernames=[],
+        restriction_reason=[],
+    )
+
+
+def _invite() -> raw.types.ChatInviteExported:
+    return raw.types.ChatInviteExported(
+        link=_LINK,
+        admin_id=_ADMIN_ID,
+        date=0,
+    )
+
+
+def _participant() -> raw.types.GroupCallParticipant:
+    return raw.types.GroupCallParticipant(
+        peer=raw.types.PeerUser(user_id=_MEMBER_ID),
+        date=0,
+        source=0,
+        volume=5,
+    )
+
+
+@pytest.mark.parametrize(
+    ("action", "expected"),
+    [
+        pytest.param(
+            raw.types.ChannelAdminLogEventActionParticipantJoinByInvite(invite=_invite()),
+            {"member_joined_by_invite_link.invite_link.invite_link": _LINK},
+            id="joined-by-link",
+        ),
+        pytest.param(
+            raw.types.ChannelAdminLogEventActionParticipantJoinByRequest(
+                invite=_invite(),
+                approved_by=_MEMBER_ID,
+            ),
+            {
+                "member_joined_by_invite_link.invite_link.invite_link": _LINK,
+                "member_joined_by_invite_link.approver_user.id": _MEMBER_ID,
+            },
+            id="joined-by-request",
+        ),
+        pytest.param(
+            raw.types.ChannelAdminLogEventActionChangeLinkedChat(
+                prev_value=_OLD_CHANNEL_ID,
+                new_value=_NEW_CHANNEL_ID,
+            ),
+            {
+                "linked_chat_changed.old_linked_chat.id": -1000000000000 - _OLD_CHANNEL_ID,
+                "linked_chat_changed.new_linked_chat.id": -1000000000000 - _NEW_CHANNEL_ID,
+            },
+            id="linked-chat-changed",
+        ),
+        pytest.param(
+            raw.types.ChannelAdminLogEventActionParticipantVolume(participant=_participant()),
+            {"video_chat_participant_volume_level_changed.participant.id": _MEMBER_ID},
+            id="participant-volume",
+        ),
+        pytest.param(
+            raw.types.ChannelAdminLogEventActionParticipantMute(participant=_participant()),
+            {"video_chat_participant_is_muted_toggled.participant.id": _MEMBER_ID},
+            id="participant-muted",
+        ),
+        pytest.param(
+            raw.types.ChannelAdminLogEventActionParticipantUnmute(participant=_participant()),
+            {"video_chat_participant_is_muted_toggled.participant.id": _MEMBER_ID},
+            id="participant-unmuted",
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_an_event_with_a_known_value_keeps_it(
+    action: raw.base.ChannelAdminLogEventAction,
+    expected: dict[str, str | int],
+) -> None:
+    # Each of these fields is now `None` when its value is missing, so the value has to
+    #  survive the check when it is there.
+    event = raw.types.ChannelAdminLogEvent(
+        id=1,
+        date=0,
+        user_id=_ADMIN_ID,
+        action=action,
+    )
+
+    client = pyrogram.Client(
+        "test",
+        api_id=1,
+        api_hash="0" * 32,
+        in_memory=True,
+    )
+
+    parsed = await types.ChatEvent._parse(
+        client,
+        event,
+        {
+            _ADMIN_ID: _ADMIN,
+            _MEMBER_ID: raw.types.User(
+                id=_MEMBER_ID,
+                first_name="Member",
+                usernames=[],
+                restriction_reason=[],
+            ),
+        },
+        {
+            _OLD_CHANNEL_ID: _channel(_OLD_CHANNEL_ID),
+            _NEW_CHANNEL_ID: _channel(_NEW_CHANNEL_ID),
+        },
+    )
+
+    assert {path: attrgetter(path)(parsed) for path in expected} == expected
