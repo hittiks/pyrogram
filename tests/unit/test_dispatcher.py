@@ -1002,38 +1002,98 @@ async def test_an_update_naming_an_empty_entity_reaches_its_handler_without_it(
 ) -> None:
     # The dispatcher drops `userEmpty` and `chatEmpty` from `users` and `chats`, and these
     #  parsers indexed them by id, so the update raised `KeyError` and no handler ran; on `main` the field was `None`.
+    value = await _handled_field(
+        client_with_storage,
+        update=update,
+        handler_type=handler_type,
+        field=field,
+        listed_user=raw.types.UserEmpty(id=_EMPTY_ID),
+        listed_chat=raw.types.ChatEmpty(id=_EMPTY_ID),
+    )
+
+    assert value == expected
+
+
+@pytest.mark.parametrize(
+    ("update", "handler_type", "field", "expected"),
+    _UPDATES_NAMING_AN_EMPTY_ENTITY,
+)
+async def test_an_update_naming_a_known_entity_reaches_its_handler_with_it(
+    client_with_storage: Client,
+    update: raw.base.Update,
+    handler_type: type[Handler[Any]],
+    field: str,
+    expected: list[None] | None,
+) -> None:
+    # The same parsers now give `None` when the entity is missing, so the entity has to
+    #  survive that check when the update lists it in full.
+    value = await _handled_field(
+        client_with_storage,
+        update=update,
+        handler_type=handler_type,
+        field=field,
+        listed_user=raw.types.User(
+            id=_EMPTY_ID,
+            first_name="Listed",
+            access_hash=0,
+        ),
+        listed_chat=raw.types.Chat(
+            id=_EMPTY_ID,
+            title="Listed",
+            photo=raw.types.ChatPhotoEmpty(),
+            participants_count=2,
+            date=1,
+            version=1,
+        ),
+    )
+
+    # A user id is positive and a basic group id is its negative, so both read as `_EMPTY_ID`.
+    ids = [abs(item.id) for item in value] if isinstance(value, list) else abs(value.id)
+    assert ids == ([_EMPTY_ID] if isinstance(expected, list) else _EMPTY_ID)
+
+
+async def _handled_field(
+    client: Client,
+    *,
+    update: raw.base.Update,
+    handler_type: type[Handler[Any]],
+    field: str,
+    listed_user: raw.base.User,
+    listed_chat: raw.base.Chat,
+) -> Any:
+    """The field of what the handler got for an update listing these entities at `_EMPTY_ID`."""
     received: list[Any] = []
 
     async def record(client: Client, parsed: Any, /) -> None:
         received.append(parsed)
 
-    client_with_storage.add_handler(handler_type(record))
+    client.add_handler(handler_type(record))
 
-    await client_with_storage.dispatcher.start()
-    await client_with_storage.handle_updates(
+    await client.dispatcher.start()
+    await client.handle_updates(
         raw.types.Updates(
             updates=[update],
             users=[
-                raw.types.UserEmpty(id=_EMPTY_ID),
+                listed_user,
                 raw.types.User(
                     id=_SENDER_ID,
                     first_name="Sender",
                     access_hash=0,
                 ),
             ],
-            chats=[_GROUP, raw.types.ChatEmpty(id=_EMPTY_ID)],
+            chats=[_GROUP, listed_chat],
             date=1,
             seq=1,
         ),
     )
-    await client_with_storage.dispatcher.stop()
+    await client.dispatcher.stop()
 
     [parsed] = received
     value: Any = parsed
     for name in field.split("."):
         value = value[int(name)] if name.isdigit() else getattr(value, name)
 
-    assert value == expected
+    return value
 
 
 @pytest.fixture
